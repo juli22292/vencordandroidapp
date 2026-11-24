@@ -23,8 +23,8 @@ import java.nio.charset.StandardCharsets;
  */
 public class VencordPatchManager {
 
-    public static final String INSTALLER_VERSION = "0.0.4";
-    public static final String CORE_DEFAULT_VERSION = "0.0.4";
+    public static final String INSTALLER_VERSION = "0.0.5";
+    public static final String CORE_DEFAULT_VERSION = "0.0.5";
     public static final String CORE_BUNDLE_URL = "https://raw.githubusercontent.com/juli22292/vencordforandroid/main/dist/vencordforandroid.js";
     public static final String CORE_MANIFEST_URL = "https://raw.githubusercontent.com/juli22292/vencordforandroid/main/dist/manifest.json";
 

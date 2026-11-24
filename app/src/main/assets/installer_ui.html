@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>Vencord Installer v0.0.4</title>
+    <title>Vencord Installer v0.0.5</title>
     <style>
         :root {
             --bg-window: #1e1f22;
@@ -232,53 +232,15 @@
         .log-warn { color: #f0b232; }
         .log-err { color: #da373c; }
         .log-info { color: #5865f2; }
-        /* Mandatory Lock Overlay when a version is marked corrupted */
-        .corrupted-lock-overlay {
-            display: none;
-            position: fixed;
-            inset: 0;
-            background: rgba(17, 18, 20, 0.96);
-            z-index: 999999;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-            text-align: center;
-        }
-        .corrupted-lock-overlay.visible {
-            display: flex;
-        }
-        .corrupted-card {
-            background: #2b2d31;
-            border: 2px solid #da373c;
-            border-radius: 14px;
-            padding: 22px;
-            max-width: 420px;
-            width: 100%;
-        }
     </style>
 </head>
 <body>
-
-    <div class="corrupted-lock-overlay" id="corrupted-lock-overlay">
-        <div class="corrupted-card">
-            <div style="background:#da373c;color:#fff;display:inline-block;padding:4px 12px;border-radius:999px;font-size:12px;font-weight:700;margin-bottom:12px;">
-                OUTDATED / CORRUPTED VERSION
-            </div>
-            <h2 style="margin:0 0 10px 0;font-size:19px;">Update Required</h2>
-            <p style="font-size:13px;color:var(--text-secondary);line-height:1.5;margin:0 0 18px 0;" id="corrupted-lock-msg">
-                This version is no longer supported. Please update to the latest release.
-            </p>
-            <button class="btn btn-green" style="width:100%;" onclick="downloadInstallerApkUpdate()">
-                Download Latest APK
-            </button>
-        </div>
-    </div>
 
     <div class="container">
 
         <div class="header-center">
             <h1 class="header-title">Vencord Installer</h1>
-            <div class="header-sub">VencordAndroidApp v0.0.4 • Official Discord Android Patcher</div>
+            <div class="header-sub">VencordAndroidApp v0.0.5 • Official Discord Android Patcher</div>
         </div>
 
         <div class="update-banner" id="installer-update-banner">
@@ -293,7 +255,7 @@
         <div class="info-panel">
             <div class="info-line">
                 <span class="info-key">Installer Version (juli22292/vencordandroidapp):</span>
-                <span class="info-val" id="installer-ver">v0.0.4</span>
+                <span class="info-val" id="installer-ver">v0.0.5</span>
             </div>
             <div class="info-line">
                 <span class="info-key">Installed VencordForAndroid Version:</span>
@@ -301,7 +263,7 @@
             </div>
             <div class="info-line">
                 <span class="info-key">Latest VencordForAndroid (juli22292/vencordforandroid):</span>
-                <span class="info-val" id="remote-core-ver">v0.0.4 (7ae084f)</span>
+                <span class="info-val" id="remote-core-ver">v0.0.5 (f52c535)</span>
             </div>
             <div class="info-line">
                 <span class="info-key">Included Official Vencord Plugins:</span>
@@ -483,41 +445,49 @@
             }
         }
 
+        function compareSemver(current, remote) {
+            const parse = (v) => String(v || "0.0.0").replace(/^v/i, "").split(".").map(n => parseInt(n, 10) || 0);
+            const a = parse(current);
+            const b = parse(remote);
+            const len = Math.max(a.length, b.length);
+            for (let i = 0; i < len; i++) {
+                const av = a[i] || 0;
+                const bv = b[i] || 0;
+                if (bv > av) return 1;
+                if (bv < av) return -1;
+            }
+            return 0;
+        }
+
         async function checkBothRepositories() {
             log("Fetching latest build info from GitHub...", "info");
 
             const currentVer = window.AndroidInstaller
                 ? JSON.parse(window.AndroidInstaller.getSystemStatusJson()).installerVersion
-                : "0.0.4";
+                : "0.0.5";
 
             try {
                 const manifestRes = await fetch(`https://raw.githubusercontent.com/${CORE_REPO}/main/dist/manifest.json`, { cache: "no-store" });
                 if (manifestRes.ok) {
                     const manifest = await manifestRes.json();
-                    const remoteCoreVer = (manifest.version || "0.0.4").replace(/^v/i, "");
-                    const hash = (manifest.sha256 || "7ae084f").slice(0, 7);
+                    const remoteCoreVer = (manifest.version || "0.0.5").replace(/^v/i, "");
+                    const hash = (manifest.sha256 || "f52c535").slice(0, 7);
                     document.getElementById("remote-core-ver").textContent = `v${remoteCoreVer} (${hash})`;
                     log(`Latest VencordForAndroid (${CORE_REPO}): v${remoteCoreVer} (${hash})`, "ok");
-
-                    if (Array.isArray(manifest.corruptedVersions) && manifest.corruptedVersions.includes(currentVer)) {
-                        document.getElementById("corrupted-lock-msg").textContent =
-                            manifest.corruptedMessage || `Version v${currentVer} is corrupted/deprecated. Please update to v${remoteCoreVer}.`;
-                        document.getElementById("corrupted-lock-overlay").classList.add("visible");
-                    }
                 }
             } catch (_) {
-                log("Using bundled VencordForAndroid v0.0.4 build info.", "info");
+                log("Using bundled VencordForAndroid v0.0.5 build info.", "info");
             }
 
             try {
                 const appRes = await fetch(`https://api.github.com/repos/${INSTALLER_REPO}/releases/latest`);
                 if (appRes.ok) {
                     const data = await appRes.json();
-                    const remoteVer = (data.tag_name || "0.0.4").replace(/^v/i, "");
+                    const remoteVer = (data.tag_name || "0.0.5").replace(/^v/i, "");
                     const apkAsset = (data.assets || []).find(a => a.name.endsWith(".apk"));
                     if (apkAsset) latestInstallerApkUrl = apkAsset.browser_download_url;
 
-                    if (remoteVer !== currentVer && remoteVer > currentVer) {
+                    if (compareSemver(currentVer, remoteVer) > 0) {
                         document.getElementById("installer-update-text").textContent =
                             `Version v${remoteVer} of vencordandroidapp.apk is available (installed: v${currentVer}).`;
                         document.getElementById("installer-update-banner").classList.add("visible");
@@ -530,7 +500,7 @@
         }
 
         window.addEventListener("DOMContentLoaded", () => {
-            log("Vencord Installer v0.0.4 initialized.", "info");
+            log("Vencord Installer v0.0.5 initialized.", "info");
             refreshStateFromBridge();
             checkBothRepositories();
         });
