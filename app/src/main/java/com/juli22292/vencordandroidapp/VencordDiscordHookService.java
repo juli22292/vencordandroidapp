@@ -4,6 +4,8 @@ import android.accessibilityservice.AccessibilityService;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
+import android.graphics.Rect;
+import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
@@ -15,10 +17,17 @@ import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import java.util.List;
+
+/**
+ * Injects the native "Vencord Settings" section (Vencord, Plugins, Themes, Updater, Cloud, Backup & Restore)
+ * directly into the official Discord Android app's User Settings list (between Benachrichtigungen and Zahlungsabwicklung/Nitro).
+ */
 public class VencordDiscordHookService extends AccessibilityService {
 
     private WindowManager windowManager;
     private View discordSettingsSectionView;
+    private WindowManager.LayoutParams sectionLayoutParams;
     private boolean isOverlayAttached = false;
     private VencordPatchManager patchManager;
 
@@ -33,7 +42,6 @@ public class VencordDiscordHookService extends AccessibilityService {
     public void onAccessibilityEvent(AccessibilityEvent event) {
         if (event == null || patchManager == null) return;
 
-        // Only active if VencordForAndroid is installed and NOT on corrupted version 0.0.1
         if (!patchManager.isInstalled() || patchManager.isInstalledVersionCorrupted()) {
             removeInjectedDiscordSection();
             return;
@@ -50,7 +58,7 @@ public class VencordDiscordHookService extends AccessibilityService {
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return;
 
-        // 1. Execute active ClearURLs plugin directly inside official Discord chat input
+        // 1. Active ClearURLs plugin hook inside official Discord chat input
         if (event.getEventType() == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED && patchManager.isPluginEnabled("ClearURLs")) {
             AccessibilityNodeInfo source = event.getSource();
             if (source != null && source.isEditable() && source.getText() != null) {
@@ -64,113 +72,153 @@ public class VencordDiscordHookService extends AccessibilityService {
             }
         }
 
-        // 2. Check if the user is currently inside the Discord Settings screen of the official Discord app
-        boolean inDiscordSettings = detectDiscordSettingsScreen(root);
-        if (inDiscordSettings) {
-            showInjectedDiscordSection();
+        // 2. Detect if user is in official Discord Settings and position "Vencord Settings" section inline
+        int anchorY = findDiscordSettingsAnchorY(root);
+        if (anchorY > 0) {
+            showOrUpdateInjectedDiscordSection(anchorY);
         } else {
-            // Also show if user is in main Discord tabs where settings icon is selected
             removeInjectedDiscordSection();
         }
     }
 
-    private boolean detectDiscordSettingsScreen(AccessibilityNodeInfo node) {
-        if (node == null) return false;
-        // Scan official Discord Android settings screen keywords (German & English)
-        String[] markers = new String[]{
-                "Nutzer-Einstellungen", "Benutzereinstellungen", "User Settings",
-                "Mein Account", "My Account", "Privatsphäre", "Erscheinungsbild",
-                "Appearance", "Nitro", "Abmelden", "Log Out", "App-Einstellungen"
+    /**
+     * Locates the position between "Benachrichtigungen"/"Notifications" and "Nitro"/"Zahlungsabwicklung"
+     * in the official Discord Settings screen so Vencord Settings appears inline like in desktop Vencord.
+     */
+    private int findDiscordSettingsAnchorY(AccessibilityNodeInfo root) {
+        if (root == null) return -1;
+
+        String[] primaryAnchors = new String[]{
+                "Benachrichtigungen", "Notifications",
+                "Berechtigungen für Nachrichten", "Daten & Privatsphäre",
+                "Account", "Mein Account", "My Account"
         };
-        for (String marker : markers) {
-            if (!node.findAccessibilityNodeInfosByText(marker).isEmpty()) {
-                return true;
+
+        for (String label : primaryAnchors) {
+            List<AccessibilityNodeInfo> matches = root.findAccessibilityNodeInfosByText(label);
+            if (matches != null && !matches.isEmpty()) {
+                Rect bounds = new Rect();
+                matches.get(0).getBoundsInScreen(bounds);
+                if (bounds.bottom > 120 && bounds.bottom < 2200) {
+                    return bounds.bottom + 12;
+                }
             }
         }
-        return false;
+
+        String[] secondaryMarkers = new String[]{
+                "Nutzer-Einstellungen", "Benutzereinstellungen", "User Settings",
+                "Nitro", "Server-Boost", "Erscheinungsbild", "Appearance", "Abmelden", "Log Out"
+        };
+        for (String marker : secondaryMarkers) {
+            List<AccessibilityNodeInfo> matches = root.findAccessibilityNodeInfosByText(marker);
+            if (matches != null && !matches.isEmpty()) {
+                return 260;
+            }
+        }
+
+        return -1;
     }
 
-    private void showInjectedDiscordSection() {
-        if (isOverlayAttached || windowManager == null) return;
+    private void showOrUpdateInjectedDiscordSection(int anchorY) {
+        if (windowManager == null) return;
+
+        if (isOverlayAttached && discordSettingsSectionView != null && sectionLayoutParams != null) {
+            if (Math.abs(sectionLayoutParams.y - anchorY) > 16) {
+                sectionLayoutParams.y = anchorY;
+                try {
+                    windowManager.updateViewLayout(discordSettingsSectionView, sectionLayoutParams);
+                } catch (Exception ignored) {
+                }
+            }
+            return;
+        }
 
         try {
-            LinearLayout card = new LinearLayout(this);
-            card.setOrientation(LinearLayout.VERTICAL);
+            LinearLayout sectionContainer = new LinearLayout(this);
+            sectionContainer.setOrientation(LinearLayout.VERTICAL);
+
             GradientDrawable bg = new GradientDrawable();
             bg.setColor(Color.parseColor("#2B2D31"));
-            bg.setCornerRadius(28f);
-            bg.setStroke(3, Color.parseColor("#5865F2"));
-            card.setBackground(bg);
-            card.setPadding(36, 24, 36, 24);
+            bg.setCornerRadius(24f);
+            bg.setStroke(2, Color.parseColor("#3F4147"));
+            sectionContainer.setBackground(bg);
+            sectionContainer.setPadding(28, 20, 28, 20);
 
-            TextView header = new TextView(this);
-            header.setText("VENCORDFORANDROID (v" + patchManager.getInstalledVersion() + ")");
-            header.setTextColor(Color.parseColor("#949BA4"));
-            header.setTextSize(11f);
-            card.addView(header);
+            // Section Title matching screenshot ("Vencord Settings")
+            TextView sectionHeader = new TextView(this);
+            sectionHeader.setText("Vencord Settings");
+            sectionHeader.setTextColor(Color.parseColor("#949BA4"));
+            sectionHeader.setTextSize(12f);
+            sectionHeader.setTypeface(Typeface.DEFAULT_BOLD);
+            sectionHeader.setPadding(12, 4, 12, 10);
+            sectionContainer.addView(sectionHeader);
 
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setPadding(0, 14, 0, 0);
-
-            row.addView(createMenuButton("Plugins", "plugins", "#5865F2"));
-            row.addView(createMenuButton("Einstellungen", "settings", "#313338"));
-            row.addView(createMenuButton("Updater", "updater", "#23A55A"));
-
-            card.addView(row);
+            // Official 6 Vencord Settings rows matching screenshot
+            sectionContainer.addView(createDiscordSettingsRow("⚙  Vencord", "vencord", false));
+            sectionContainer.addView(createDiscordSettingsRow("🧩  Plugins", "plugins", true));
+            sectionContainer.addView(createDiscordSettingsRow("🎨  Themes", "themes", false));
+            sectionContainer.addView(createDiscordSettingsRow("⬇  Updater", "updater", false));
+            sectionContainer.addView(createDiscordSettingsRow("☁  Cloud", "cloud", false));
+            sectionContainer.addView(createDiscordSettingsRow("🔄  Backup & Restore", "backup", false));
 
             int overlayType = Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1
                     ? WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
                     : WindowManager.LayoutParams.TYPE_PHONE;
 
-            WindowManager.LayoutParams params = new WindowManager.LayoutParams(
+            sectionLayoutParams = new WindowManager.LayoutParams(
                     WindowManager.LayoutParams.MATCH_PARENT,
                     WindowManager.LayoutParams.WRAP_CONTENT,
                     overlayType,
                     WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
                     PixelFormat.TRANSLUCENT
             );
-            params.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-            params.y = 140;
-            params.horizontalMargin = 0.04f;
+            sectionLayoutParams.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+            sectionLayoutParams.y = anchorY;
 
-            windowManager.addView(card, params);
-            discordSettingsSectionView = card;
+            windowManager.addView(sectionContainer, sectionLayoutParams);
+            discordSettingsSectionView = sectionContainer;
             isOverlayAttached = true;
         } catch (Exception ignored) {
         }
     }
 
-    private View createMenuButton(String label, final String tabId, String hexColor) {
-        TextView btn = new TextView(this);
-        btn.setText(label);
-        btn.setTextColor(Color.WHITE);
-        btn.setTextSize(13f);
-        btn.setPadding(30, 16, 30, 16);
+    private View createDiscordSettingsRow(String title, final String tabId, boolean highlighted) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(24, 18, 24, 18);
 
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(Color.parseColor(hexColor));
-        drawable.setCornerRadius(18f);
-        btn.setBackground(drawable);
+        GradientDrawable rowBg = new GradientDrawable();
+        rowBg.setColor(Color.parseColor(highlighted ? "#404249" : "#2B2D31"));
+        rowBg.setCornerRadius(12f);
+        row.setBackground(rowBg);
 
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+        TextView label = new TextView(this);
+        label.setText(title);
+        label.setTextColor(Color.parseColor(highlighted ? "#FFFFFF" : "#DBDEE1"));
+        label.setTextSize(14f);
+        label.setTypeface(highlighted ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+        LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(
                 0,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 1f
         );
-        lp.setMargins(6, 0, 6, 0);
-        btn.setLayoutParams(lp);
-        btn.setGravity(Gravity.CENTER);
+        row.addView(label, labelLp);
 
-        btn.setOnClickListener(v -> {
+        TextView chevron = new TextView(this);
+        chevron.setText("›");
+        chevron.setTextColor(Color.parseColor("#949BA4"));
+        chevron.setTextSize(18f);
+        row.addView(chevron);
+
+        row.setOnClickListener(v -> {
             Intent intent = new Intent(VencordDiscordHookService.this, VencordSettingsOverlayActivity.class);
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             intent.putExtra("initial_tab", tabId);
             startActivity(intent);
         });
 
-        return btn;
+        return row;
     }
 
     private void removeInjectedDiscordSection() {

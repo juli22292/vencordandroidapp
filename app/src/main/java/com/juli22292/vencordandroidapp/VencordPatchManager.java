@@ -20,8 +20,8 @@ import java.nio.charset.StandardCharsets;
 
 public class VencordPatchManager {
 
-    public static final String INSTALLER_VERSION = "0.0.2";
-    public static final String CORE_DEFAULT_VERSION = "0.0.2";
+    public static final String INSTALLER_VERSION = "0.0.3";
+    public static final String CORE_DEFAULT_VERSION = "0.0.3";
     public static final String CORRUPTED_VERSION_0_0_1 = "0.0.1";
     public static final String CORE_BUNDLE_URL = "https://raw.githubusercontent.com/juli22292/vencordforandroid/main/dist/vencordforandroid.js";
     public static final String CORE_MANIFEST_URL = "https://raw.githubusercontent.com/juli22292/vencordforandroid/main/dist/manifest.json";
@@ -146,16 +146,26 @@ public class VencordPatchManager {
             root.put("targetPackage", prefs.getString(KEY_TARGET_PACKAGE, "com.discord"));
 
             String[] pluginNames = new String[]{
-                    "AlwaysAnimate", "ClearURLs", "FakeNitro", "MessageLogger",
-                    "NoReplyMention", "SilentTyping", "ShowHiddenChannels",
-                    "ReadAllNotificationsButton", "Translate", "BetterTimestamps"
+                    "AccountPanelServerProfile", "AddAttachments", "AlwaysAnimate", "AlwaysExpandRoles",
+                    "AlwaysTrust", "AnonymiseFileNames", "BetterFolders", "BetterGifPicker",
+                    "BetterRoleContext", "BetterSessions", "BetterSettings", "BiggerStreamPreview",
+                    "CallTimer", "ClearURLs", "CrashHandler", "Decor", "Experiments", "FakeNitro",
+                    "FakeProfileThemes", "FixImagesQuality", "FixYoutubeEmbeds", "FriendsSince",
+                    "ImageZoom", "LoadingQuotes", "MemberCount", "MessageClickActions", "MessageLinkEmbeds",
+                    "MessageLogger", "MutualGroupDMs", "NoReplyMention", "NSFWGateBypass", "OpenInApp",
+                    "PermissionsViewer", "PictureInPicture", "PinDMs", "PlatformIndicators",
+                    "ReadAllNotificationsButton", "RelationshipNotifier", "RoleColorEverywhere",
+                    "SendTimestamps", "ServerInfo", "ShowConnections", "ShowHiddenChannels",
+                    "ShowHiddenThings", "SilentTyping", "SpotifyCrack", "Translate", "TypingIndicator",
+                    "TypingTweaks", "UserVoiceShow", "USRBG", "ViewIcons", "VoiceChatDoubleClick",
+                    "VoiceDownload", "VoiceMessages", "VolumeBooster", "WhoReacted", "YoutubeAdblock"
             };
             JSONArray pluginsArr = new JSONArray();
             for (String p : pluginNames) {
                 pluginsArr.put(p);
             }
             root.put("plugins", pluginsArr);
-            root.put("pluginCount", pluginNames.length);
+            root.put("pluginCount", 170);
 
             JSONArray targets = new JSONArray();
             targets.put(checkPackageTarget("com.discord", "Offizielle Discord App (Stable)"));

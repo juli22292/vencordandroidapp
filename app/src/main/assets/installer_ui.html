@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>VencordAndroidApp Installer v0.0.2</title>
+    <title>VencordAndroidApp Installer v0.0.3</title>
     <style>
         :root {
             --bg-primary: #1e1f22;
@@ -350,7 +350,7 @@
             <div class="vencord-logo">V</div>
             <div>
                 <div class="win-title">VencordAndroidApp Installer</div>
-                <div class="win-subtitle">Direkt-Injektor für offizielle Discord-App • v0.0.2</div>
+                <div class="win-subtitle">Direkt-Injektor für offizielle Discord-App • v0.0.3</div>
             </div>
         </div>
         <div class="win-controls">
@@ -388,12 +388,12 @@
             <div class="version-grid">
                 <div class="version-box">
                     <div class="version-label">Installer App (APK)</div>
-                    <div class="version-val" id="installer-ver">v0.0.2</div>
+                    <div class="version-val" id="installer-ver">v0.0.3</div>
                     <div class="repo-tag">juli22292/vencordandroidapp</div>
                 </div>
                 <div class="version-box">
                     <div class="version-label">VencordForAndroid (Neueste)</div>
-                    <div class="version-val" id="remote-core-ver">v0.0.2</div>
+                    <div class="version-val" id="remote-core-ver">v0.0.3</div>
                     <div class="repo-tag">juli22292/vencordforandroid</div>
                 </div>
                 <div class="version-box">
@@ -442,7 +442,7 @@
 
         <!-- Included Plugins Overview -->
         <div class="panel">
-            <div class="panel-title">Inkludierte Plugins in VencordForAndroid (v0.0.2)</div>
+            <div class="panel-title">Inkludierte Plugins in VencordForAndroid (v0.0.3)</div>
             <div style="font-size:12px; color:var(--text-secondary);">
                 Wird direkt in deine installierte <b>Discord-App</b> injiziert (dein Account bleibt eingeloggt). In den <b>Discord-Einstellungen</b> erscheint der Bereich <b>VencordForAndroid</b>:
             </div>
@@ -650,14 +650,14 @@
 
             const currentVer = window.AndroidInstaller
                 ? JSON.parse(window.AndroidInstaller.getSystemStatusJson()).installerVersion
-                : "0.0.2";
+                : "0.0.3";
 
             // 1. Check VencordForAndroid manifest for corrupted version lock & latest bundle version
             try {
                 const manifestRes = await fetch(`https://raw.githubusercontent.com/${CORE_REPO}/main/dist/manifest.json`, { cache: "no-store" });
                 if (manifestRes.ok) {
                     const manifest = await manifestRes.json();
-                    const remoteCoreVer = (manifest.version || "0.0.2").replace(/^v/i, "");
+                    const remoteCoreVer = (manifest.version || "0.0.3").replace(/^v/i, "");
                     document.getElementById("remote-core-ver").textContent = "v" + remoteCoreVer;
                     log(`VencordForAndroid (${CORE_REPO}): Neueste Version ist v${remoteCoreVer}`, "ok");
 
@@ -669,7 +669,7 @@
                     }
                 }
             } catch (_) {
-                log("VencordForAndroid Release-Check abgeschlossen (v0.0.2 bereit).", "info");
+                log("VencordForAndroid Release-Check abgeschlossen (v0.0.3 bereit).", "info");
             }
 
             // 2. Check VencordAndroidApp Repo (Installer APK)
@@ -677,7 +677,7 @@
                 const appRes = await fetch(`https://api.github.com/repos/${INSTALLER_REPO}/releases/latest`);
                 if (appRes.ok) {
                     const data = await appRes.json();
-                    const remoteVer = (data.tag_name || "0.0.2").replace(/^v/i, "");
+                    const remoteVer = (data.tag_name || "0.0.3").replace(/^v/i, "");
                     const apkAsset = (data.assets || []).find(a => a.name.endsWith(".apk"));
                     if (apkAsset) latestInstallerApkUrl = apkAsset.browser_download_url;
 
@@ -691,12 +691,12 @@
                     }
                 }
             } catch (_) {
-                log("Installer-Update-Prüfung abgeschlossen (v0.0.2).", "info");
+                log("Installer-Update-Prüfung abgeschlossen (v0.0.3).", "info");
             }
         }
 
         window.addEventListener("DOMContentLoaded", () => {
-            log("VencordAndroidApp v0.0.2 gestartet (Version 0.0.1 ist als beschädigt gesperrt).", "info");
+            log("VencordAndroidApp v0.0.3 gestartet (Version 0.0.1 ist als beschädigt gesperrt).", "info");
             refreshStateFromBridge();
             checkBothRepositories();
         });
