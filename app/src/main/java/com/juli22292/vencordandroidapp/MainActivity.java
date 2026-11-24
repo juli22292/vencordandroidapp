@@ -13,11 +13,11 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
-import android.widget.Toast;
 
 /**
- * VencordAndroidApp MainActivity (v0.0.4)
- * Renders the Vencord/Installer GUI (gui.go) for Android.
+ * VencordAndroidApp MainActivity (v0.0.6)
+ * Hosts the Windows 10/11 Vencord Installer GUI (Install, Reinstall / Repair, Uninstall, Update)
+ * and launches Discord with the full official Vencord runtime (VencordDiscordActivity).
  */
 public class MainActivity extends Activity {
 
@@ -29,13 +29,21 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        patchManager = new VencordPatchManager(this);
+
+        boolean forceInstaller = getIntent() != null && getIntent().getBooleanExtra("force_installer", false);
+        if (!forceInstaller && patchManager.isInstalled() && patchManager.isAutoLaunchEnabled()) {
+            Intent intent = new Intent(this, VencordDiscordActivity.class);
+            startActivity(intent);
+            finish();
+            return;
+        }
+
         Window window = getWindow();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             window.setStatusBarColor(Color.parseColor("#111214"));
             window.setNavigationBarColor(Color.parseColor("#1E1F22"));
         }
-
-        patchManager = new VencordPatchManager(this);
 
         webView = new WebView(this);
         WebSettings settings = webView.getSettings();
@@ -69,38 +77,35 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
-        public String installVencord(String targetPackage) {
-            return patchManager.installVencord(targetPackage).toString();
+        public String installVencord(String branchId) {
+            return patchManager.installVencord(branchId).toString();
         }
 
         @JavascriptInterface
-        public String repairVencord(String targetPackage) {
-            return patchManager.repairVencord(targetPackage).toString();
+        public String repairVencord(String branchId) {
+            return patchManager.repairVencord(branchId).toString();
         }
 
         @JavascriptInterface
-        public String uninstallVencord(String targetPackage) {
-            return patchManager.uninstallVencord(targetPackage).toString();
+        public String uninstallVencord() {
+            return patchManager.uninstallVencord().toString();
         }
 
         @JavascriptInterface
-        public void openOfficialDiscordApp(String targetPackage) {
+        public void setAutoLaunch(boolean enabled) {
+            patchManager.setAutoLaunchEnabled(enabled);
+        }
+
+        @JavascriptInterface
+        public void setDesktopUi(boolean enabled) {
+            patchManager.setDesktopUaEnabled(enabled);
+        }
+
+        @JavascriptInterface
+        public void launchVencordDiscord() {
             runOnUiThread(() -> {
-                try {
-                    Intent launchIntent = getPackageManager().getLaunchIntentForPackage(targetPackage);
-                    if (launchIntent != null) {
-                        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                        startActivity(launchIntent);
-                    } else {
-                        Toast.makeText(
-                                MainActivity.this,
-                                "Discord (" + targetPackage + ") is not installed on this device.",
-                                Toast.LENGTH_LONG
-                        ).show();
-                    }
-                } catch (Exception e) {
-                    Toast.makeText(MainActivity.this, "Failed to launch Discord: " + e.getMessage(), Toast.LENGTH_LONG).show();
-                }
+                Intent intent = new Intent(MainActivity.this, VencordDiscordActivity.class);
+                startActivity(intent);
             });
         }
 
