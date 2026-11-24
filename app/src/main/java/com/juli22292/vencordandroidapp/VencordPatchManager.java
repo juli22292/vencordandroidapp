@@ -26,8 +26,8 @@ import java.util.List;
  */
 public class VencordPatchManager {
 
-    public static final String INSTALLER_VERSION = "0.0.7";
-    public static final String CORE_DEFAULT_VERSION = "0.0.7";
+    public static final String INSTALLER_VERSION = "0.0.8";
+    public static final String CORE_DEFAULT_VERSION = "0.0.8";
 
     private static final String PREFS_NAME = "VencordPatcherPrefs_v7";
     private static final String KEY_PATCHED = "is_patched";
@@ -143,7 +143,16 @@ public class VencordPatchManager {
                 ApplicationInfo appInfo = info.applicationInfo;
                 int splitCount = (appInfo != null && appInfo.splitPublicSourceDirs != null)
                         ? appInfo.splitPublicSourceDirs.length : 0;
+                boolean hasLspatchEmbedded = false;
+                if (appInfo != null && appInfo.publicSourceDir != null) {
+                    try (java.util.zip.ZipFile zf = new java.util.zip.ZipFile(appInfo.publicSourceDir)) {
+                        hasLspatchEmbedded = zf.getEntry("assets/lspatch/config.json") != null
+                                || zf.getEntry("assets/lspatch/loader.dex") != null;
+                    } catch (Exception ignored) {
+                    }
+                }
                 obj.put("detected", true);
+                obj.put("actuallyPatched", hasLspatchEmbedded);
                 obj.put("versionName", info.versionName != null ? info.versionName : "Installiert");
                 obj.put("apkCount", 1 + splitCount);
             } catch (PackageManager.NameNotFoundException e) {

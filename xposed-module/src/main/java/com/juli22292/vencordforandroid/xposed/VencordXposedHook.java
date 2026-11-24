@@ -1,7 +1,12 @@
 package com.juli22292.vencordforandroid.xposed;
 
+import android.app.Activity;
 import android.content.res.AssetManager;
 import android.content.res.XModuleResources;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.widget.Toast;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -22,16 +27,25 @@ import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
 /**
- * VencordForAndroid Xposed / LSPatch Module (v0.0.7)
- * Runs natively inside the official Discord Android app (com.discord, com.discord.ptb, com.discord.canary).
- * Hooks React Native's JSBundleLoaderDelegate / CatalystInstanceImpl and injects vencordforandroid.js
- * directly into Discord's own Hermes JS engine before index.android.bundle runs.
+ * VencordForAndroid Xposed / LSPatch Module (v0.0.8)
+ *
+ * Hooks the R8-PROOF native JNI bundle loader methods inside official Discord Android:
+ * 1. com.facebook.react.runtime.ReactInstance.loadJSBundleFromAssets(AssetManager, String)
+ * 2. com.facebook.react.runtime.ReactInstance.loadJSBundleFromFile(String, String)
+ * 3. com.facebook.react.bridge.CatalystInstanceImpl.jniLoadScriptFromAssets(AssetManager, String, boolean)
+ * 4. com.facebook.react.bridge.CatalystInstanceImpl.jniLoadScriptFromFile(String, String, boolean)
+ *
+ * Because these are native JNI methods, R8/ProGuard can NEVER rename them on any Play Store Discord build.
  */
 public class VencordXposedHook implements IXposedHookZygoteInit, IXposedHookLoadPackage {
 
     private static final String BUNDLE_URL = "https://raw.githubusercontent.com/juli22292/vencordforandroid/main/dist/vencordforandroid.js";
-    private static String modulePath = null;
-    private final AtomicBoolean injected = new AtomicBoolean(false);
+    private static volatile String modulePath = null;
+
+    private final AtomicBoolean hookedPackage = new AtomicBoolean(false);
+    private final AtomicBoolean bundleInjected = new AtomicBoolean(false);
+    private final AtomicBoolean toastShown = new AtomicBoolean(false);
+    private volatile String activeEngineName = "init";
 
     @Override
     public void initZygote(StartupParam startupParam) {
@@ -45,8 +59,13 @@ public class VencordXposedHook implements IXposedHookZygoteInit, IXposedHookLoad
         if (!pkg.equals("com.discord") && !pkg.equals("com.discord.ptb") && !pkg.equals("com.discord.canary")) {
             return;
         }
+        // Only hook Discord's main process (skip :phoenix or service processes)
+        if (lpparam.processName != null && !lpparam.processName.equals(pkg)) {
+            return;
+        }
+        if (!hookedPackage.compareAndSet(false, true)) return;
 
-        XposedBridge.log("[VencordForAndroid] Loaded natively inside " + pkg);
+        XposedBridge.log("[VencordForAndroid v0.0.8] Active inside main process: " + pkg);
 
         final File cacheDir = new File(lpparam.appInfo.dataDir, "cache/vencordforandroid");
         if (!cacheDir.exists()) {
@@ -55,7 +74,8 @@ public class VencordXposedHook implements IXposedHookZygoteInit, IXposedHookLoad
         final File bundleFile = new File(cacheDir, "vencordforandroid.js");
         final CountDownLatch readyLatch = new CountDownLatch(1);
 
-        // Fetch latest VencordForAndroid bundle from juli22292/vencordforandroid asynchronously
+        // Ensure bundled fallback exists immediately, then refresh from GitHub in background
+        extractBundledFallback(bundleFile);
         new Thread(() -> {
             try {
                 downloadLatestBundle(bundleFile);
@@ -69,82 +89,104 @@ public class VencordXposedHook implements IXposedHookZygoteInit, IXposedHookLoad
             }
         }).start();
 
-        // Hook 1: New React Native Architecture (ReactInstance$loadJSBundle$1)
-        hookBundleLoaderClass(lpparam.classLoader, "com.facebook.react.runtime.ReactInstance$loadJSBundle$1", bundleFile, readyLatch);
+        // Hook 1: New React Native Architecture (Bridgeless ReactInstance native JNI methods - NEVER renamed by R8!)
+        hookReactInstanceNative(lpparam.classLoader, bundleFile, readyLatch);
 
-        // Hook 2: Classic React Native Architecture (CatalystInstanceImpl)
-        hookBundleLoaderClass(lpparam.classLoader, "com.facebook.react.bridge.CatalystInstanceImpl", bundleFile, readyLatch);
+        // Hook 2: Classic React Native Architecture (CatalystInstanceImpl native JNI methods - NEVER renamed by R8!)
+        hookCatalystInstanceNative(lpparam.classLoader, bundleFile, readyLatch);
 
-        // Hook 3: R8-proof hook on ReactInstance.loadJSBundle(JSBundleLoader) & JSBundleLoader.loadScript(JSBundleLoaderDelegate)
-        hookReactInstanceLoadJSBundle(lpparam.classLoader, bundleFile, readyLatch);
-    }
-
-    private void hookReactInstanceLoadJSBundle(ClassLoader classLoader, final File bundleFile, final CountDownLatch readyLatch) {
+        // Show subtle confirmation toast once when Discord Activity opens
         try {
-            Class<?> reactInstanceClass = XposedHelpers.findClassIfExists("com.facebook.react.runtime.ReactInstance", classLoader);
-            Class<?> jsBundleLoaderClass = XposedHelpers.findClassIfExists("com.facebook.react.bridge.JSBundleLoader", classLoader);
-            if (reactInstanceClass == null || jsBundleLoaderClass == null) return;
-
-            Method loadJSBundleMethod = findMethodSafe(reactInstanceClass, "loadJSBundle", jsBundleLoaderClass);
-            if (loadJSBundleMethod != null) {
-                XposedBridge.hookMethod(loadJSBundleMethod, new XC_MethodHook() {
-                    @Override
-                    protected void beforeHookedMethod(MethodHookParam param) {
-                        if (param.args.length < 1 || param.args[0] == null) return;
-                        Object loaderObj = param.args[0];
-                        try {
-                            Class<?> delegateInterface = XposedHelpers.findClassIfExists("com.facebook.react.bridge.JSBundleLoaderDelegate", classLoader);
-                            if (delegateInterface == null) return;
-                            Method loadScriptMethod = findMethodSafe(loaderObj.getClass(), "loadScript", delegateInterface);
-                            if (loadScriptMethod != null) {
-                                XposedBridge.hookMethod(loadScriptMethod, new XC_MethodHook() {
-                                    @Override
-                                    protected void beforeHookedMethod(MethodHookParam p) {
-                                        if (!injected.compareAndSet(false, true)) return;
-                                        Object delegate = p.args.length > 0 ? p.args[0] : null;
-                                        if (delegate == null) return;
-                                        try {
-                                            readyLatch.await(3500, TimeUnit.MILLISECONDS);
-                                            if (!bundleFile.isFile() || bundleFile.length() == 0) {
-                                                extractBundledFallback(bundleFile);
-                                            }
-                                            if (bundleFile.isFile() && bundleFile.length() > 0) {
-                                                Method loadFile = delegateInterface.getMethod("loadScriptFromFile", String.class, String.class, boolean.class);
-                                                String absPath = bundleFile.getAbsolutePath();
-                                                XposedBridge.log("[VencordForAndroid] Injecting via JSBundleLoaderDelegate: " + absPath);
-                                                loadFile.invoke(delegate, absPath, absPath, false);
-                                            }
-                                        } catch (Throwable t) {
-                                            XposedBridge.log("[VencordForAndroid] JSBundleLoaderDelegate injection error: " + t.getMessage());
-                                        }
-                                    }
-                                });
+            XposedHelpers.findAndHookMethod(Activity.class, "onCreate", Bundle.class, new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    if (toastShown.compareAndSet(false, true)) {
+                        final Activity act = (Activity) param.thisObject;
+                        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                            try {
+                                String status = bundleInjected.get()
+                                        ? "VencordForAndroid v0.0.8 geladen (" + activeEngineName + ")"
+                                        : "VencordForAndroid v0.0.8 bereit";
+                                Toast.makeText(act.getApplicationContext(), status, Toast.LENGTH_SHORT).show();
+                            } catch (Throwable ignored) {
                             }
-                        } catch (Throwable ignored) {
-                        }
+                        }, 1800);
                     }
-                });
-                XposedBridge.log("[VencordForAndroid] Hooked ReactInstance.loadJSBundle (R8-proof)");
-            }
-        } catch (Throwable t) {
-            XposedBridge.log("[VencordForAndroid] ReactInstance hook skipped: " + t.getMessage());
+                }
+            });
+        } catch (Throwable ignored) {
         }
     }
 
-    private void hookBundleLoaderClass(ClassLoader classLoader, String className, final File bundleFile, final CountDownLatch readyLatch) {
+    private void hookReactInstanceNative(ClassLoader classLoader, final File bundleFile, final CountDownLatch readyLatch) {
         try {
-            Class<?> targetClass = XposedHelpers.findClassIfExists(className, classLoader);
-            if (targetClass == null) return;
+            Class<?> reactInstanceClass = XposedHelpers.findClassIfExists("com.facebook.react.runtime.ReactInstance", classLoader);
+            if (reactInstanceClass == null) {
+                XposedBridge.log("[VencordForAndroid] ReactInstance class not present in this Discord build");
+                return;
+            }
 
-            final Method loadFromFileMethod = findMethodSafe(targetClass, "loadScriptFromFile", String.class, String.class, boolean.class);
-            if (loadFromFileMethod == null) return;
+            final Method nativeLoadFromFile = findMethodSafe(reactInstanceClass, "loadJSBundleFromFile", String.class, String.class);
+            final Method nativeLoadFromAssets = findMethodSafe(reactInstanceClass, "loadJSBundleFromAssets", AssetManager.class, String.class);
+
+            if (nativeLoadFromFile == null) {
+                XposedBridge.log("[VencordForAndroid] ReactInstance.loadJSBundleFromFile not found");
+                return;
+            }
 
             XC_MethodHook hook = new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) {
-                    if (!injected.compareAndSet(false, true)) return;
+                    if (!bundleInjected.compareAndSet(false, true)) return;
                     try {
-                        readyLatch.await(3500, TimeUnit.MILLISECONDS);
+                        readyLatch.await(2500, TimeUnit.MILLISECONDS);
+                        if (!bundleFile.isFile() || bundleFile.length() == 0) {
+                            extractBundledFallback(bundleFile);
+                        }
+                        if (bundleFile.isFile() && bundleFile.length() > 0) {
+                            String absPath = bundleFile.getAbsolutePath();
+                            activeEngineName = "ReactInstance";
+                            XposedBridge.log("[VencordForAndroid] Injecting bundle via ReactInstance.loadJSBundleFromFile: " + absPath);
+                            XposedBridge.invokeOriginalMethod(
+                                    nativeLoadFromFile,
+                                    param.thisObject,
+                                    new Object[]{absPath, absPath}
+                            );
+                        }
+                    } catch (Throwable t) {
+                        XposedBridge.log("[VencordForAndroid] ReactInstance native injection error: " + t.getMessage());
+                    }
+                }
+            };
+
+            XposedBridge.hookMethod(nativeLoadFromFile, hook);
+            XposedBridge.log("[VencordForAndroid] Hooked native ReactInstance.loadJSBundleFromFile");
+
+            if (nativeLoadFromAssets != null) {
+                XposedBridge.hookMethod(nativeLoadFromAssets, hook);
+                XposedBridge.log("[VencordForAndroid] Hooked native ReactInstance.loadJSBundleFromAssets");
+            }
+        } catch (Throwable t) {
+            XposedBridge.log("[VencordForAndroid] ReactInstance hook error: " + t.getMessage());
+        }
+    }
+
+    private void hookCatalystInstanceNative(ClassLoader classLoader, final File bundleFile, final CountDownLatch readyLatch) {
+        try {
+            Class<?> catalystClass = XposedHelpers.findClassIfExists("com.facebook.react.bridge.CatalystInstanceImpl", classLoader);
+            if (catalystClass == null) return;
+
+            final Method jniLoadFromFile = findMethodSafe(catalystClass, "jniLoadScriptFromFile", String.class, String.class, boolean.class);
+            final Method jniLoadFromAssets = findMethodSafe(catalystClass, "jniLoadScriptFromAssets", AssetManager.class, String.class, boolean.class);
+
+            if (jniLoadFromFile == null) return;
+
+            XC_MethodHook hook = new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    if (!bundleInjected.compareAndSet(false, true)) return;
+                    try {
+                        readyLatch.await(2500, TimeUnit.MILLISECONDS);
                         if (!bundleFile.isFile() || bundleFile.length() == 0) {
                             extractBundledFallback(bundleFile);
                         }
@@ -153,29 +195,27 @@ public class VencordXposedHook implements IXposedHookZygoteInit, IXposedHookLoad
                             boolean loadSync = param.args.length >= 3 && param.args[2] instanceof Boolean
                                     ? (Boolean) param.args[2]
                                     : false;
-                            XposedBridge.log("[VencordForAndroid] Injecting bundle into Discord Hermes VM: " + absPath);
+                            activeEngineName = "Catalyst";
+                            XposedBridge.log("[VencordForAndroid] Injecting bundle via CatalystInstanceImpl.jniLoadScriptFromFile: " + absPath);
                             XposedBridge.invokeOriginalMethod(
-                                    loadFromFileMethod,
+                                    jniLoadFromFile,
                                     param.thisObject,
                                     new Object[]{absPath, absPath, loadSync}
                             );
                         }
                     } catch (Throwable t) {
-                        XposedBridge.log("[VencordForAndroid] Injection error: " + t.getMessage());
+                        XposedBridge.log("[VencordForAndroid] Catalyst native injection error: " + t.getMessage());
                     }
                 }
             };
 
-            Method loadFromAssets = findMethodSafe(targetClass, "loadScriptFromAssets", AssetManager.class, String.class, boolean.class);
-            if (loadFromAssets != null) {
-                XposedBridge.hookMethod(loadFromAssets, hook);
-                XposedBridge.log("[VencordForAndroid] Hooked " + className + ".loadScriptFromAssets");
+            XposedBridge.hookMethod(jniLoadFromFile, hook);
+            if (jniLoadFromAssets != null) {
+                XposedBridge.hookMethod(jniLoadFromAssets, hook);
             }
-
-            XposedBridge.hookMethod(loadFromFileMethod, hook);
-            XposedBridge.log("[VencordForAndroid] Hooked " + className + ".loadScriptFromFile");
+            XposedBridge.log("[VencordForAndroid] Hooked native CatalystInstanceImpl JNI loaders");
         } catch (Throwable t) {
-            XposedBridge.log("[VencordForAndroid] Hook setup skipped for " + className + ": " + t.getMessage());
+            XposedBridge.log("[VencordForAndroid] Catalyst hook error: " + t.getMessage());
         }
     }
 
@@ -194,9 +234,9 @@ public class VencordXposedHook implements IXposedHookZygoteInit, IXposedHookLoad
         try {
             URL url = new URL(BUNDLE_URL);
             conn = (HttpURLConnection) url.openConnection();
-            conn.setConnectTimeout(3000);
-            conn.setReadTimeout(5000);
-            conn.setRequestProperty("User-Agent", "VencordForAndroid/0.0.7");
+            conn.setConnectTimeout(2500);
+            conn.setReadTimeout(4000);
+            conn.setRequestProperty("User-Agent", "VencordForAndroid/0.0.8");
             if (conn.getResponseCode() == 200) {
                 byte[] data = readAll(conn.getInputStream());
                 if (data.length > 1000) {
@@ -214,17 +254,34 @@ public class VencordXposedHook implements IXposedHookZygoteInit, IXposedHookLoad
     }
 
     private void extractBundledFallback(File dest) {
+        // Method 1: Read directly from embedded module ClassLoader resource (works in LSPatch & LSPosed!)
+        try (InputStream is = VencordXposedHook.class.getClassLoader().getResourceAsStream("assets/vencordforandroid.js")) {
+            if (is != null) {
+                byte[] data = readAll(is);
+                if (data.length > 1000) {
+                    try (FileOutputStream fos = new FileOutputStream(dest)) {
+                        fos.write(data);
+                    }
+                    return;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+
+        // Method 2: XModuleResources fallback
         if (modulePath == null) return;
         try {
             XModuleResources modRes = XModuleResources.createInstance(modulePath, null);
             try (InputStream is = modRes.getAssets().open("vencordforandroid.js")) {
                 byte[] data = readAll(is);
-                try (FileOutputStream fos = new FileOutputStream(dest)) {
-                    fos.write(data);
+                if (data.length > 1000) {
+                    try (FileOutputStream fos = new FileOutputStream(dest)) {
+                        fos.write(data);
+                    }
                 }
             }
         } catch (Throwable t) {
-            XposedBridge.log("[VencordForAndroid] Fallback asset extract error: " + t.getMessage());
+            XposedBridge.log("[VencordForAndroid] Fallback extract error: " + t.getMessage());
         }
     }
 
