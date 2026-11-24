@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>VencordAndroidApp Installer</title>
+    <style>
+        :root {
+            --bg-primary: #1e1f22;
+            --bg-secondary: #2b2d31;
+            --bg-tertiary: #313338;
+            --bg-card: #232428;
+            --border-color: #3f4147;
+            --text-primary: #f2f3f5;
+            --text-secondary: #b5bac1;
+            --text-muted: #949ba4;
+            --accent-blurple: #5865f2;
+            --accent-green: #23a55a;
+            --accent-red: #da373c;
+            --accent-yellow: #f0b232;
+        }
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        /* Windows 10/11 Titlebar Style */
+        .win-titlebar {
+            background: #111214;
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .win-titlebar-left {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .vencord-logo {
+            width: 28px;
+            height: 28px;
+            border-radius: 7px;
+            background: var(--accent-blurple);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            font-size: 16px;
+            color: #fff;
+            box-shadow: 0 2px 8px rgba(88, 101, 242, 0.4);
+        }
+        .win-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        .win-subtitle {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+        .win-controls {
+            display: flex;
+            gap: 8px;
+        }
+        .win-dot {
+            width: 11px;
+            height: 11px;
+            border-radius: 50%;
+            background: #4e5058;
+        }
+        .container {
+            padding: 16px;
+            max-width: 680px;
+            width: 100%;
+            margin: 0 auto;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+        /* Installer Update Alert Banner */
+        .update-banner {
+            display: none;
+            background: rgba(88, 101, 242, 0.16);
+            border: 1px solid var(--accent-blurple);
+            border-radius: 10px;
+            padding: 12px 14px;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+        .update-banner.visible {
+            display: flex;
+        }
+        /* Version Info Panel (Like PC Vencord Installer) */
+        .panel {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 14px 16px;
+        }
+        .panel-title {
+            font-size: 13px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            color: var(--text-muted);
+            margin-bottom: 10px;
+        }
+        .version-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        .version-box {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 10px 12px;
+        }
+        .version-label {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+        }
+        .version-val {
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .repo-tag {
+            font-size: 10px;
+            color: var(--text-secondary);
+            margin-top: 3px;
+            word-break: break-all;
+        }
+        /* Discord Installation Table */
+        .install-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .install-row {
+            background: var(--bg-card);
+            border: 2px solid var(--border-color);
+            border-radius: 8px;
+            padding: 12px 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            transition: border-color 0.15s, background 0.15s;
+        }
+        .install-row.selected {
+            border-color: var(--accent-blurple);
+            background: rgba(88, 101, 242, 0.1);
+        }
+        .install-left {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+        .install-name {
+            font-size: 15px;
+            font-weight: 700;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .install-path {
+            font-size: 12px;
+            color: var(--text-muted);
+            font-family: monospace;
+        }
+        .status-pill {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: #4e5058;
+            color: #fff;
+            white-space: nowrap;
+        }
+        .status-pill.patched {
+            background: var(--accent-green);
+        }
+        .status-pill.unpatched {
+            background: #4e5058;
+        }
+        /* PC Installer Action Buttons Grid */
+        .actions-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        .btn {
+            border: none;
+            border-radius: 8px;
+            padding: 13px 14px;
+            font-size: 14px;
+            font-weight: 700;
+            color: #ffffff;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: opacity 0.15s, transform 0.08s;
+        }
+        .btn:active {
+            transform: scale(0.98);
+        }
+        .btn:disabled {
+            opacity: 0.45;
+            pointer-events: none;
+        }
+        .btn-install {
+            background: var(--accent-green);
+        }
+        .btn-repair {
+            background: var(--accent-blurple);
+        }
+        .btn-uninstall {
+            background: var(--accent-red);
+        }
+        .btn-update {
+            background: #4e5058;
+        }
+        .btn-launch {
+            grid-column: 1 / -1;
+            background: linear-gradient(90deg, #5865f2, #4752c4);
+            padding: 14px;
+            font-size: 15px;
+            box-shadow: 0 4px 12px rgba(88, 101, 242, 0.3);
+        }
+        /* Console Output */
+        .console-box {
+            background: #111214;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 12px;
+            font-family: "Consolas", "Courier New", monospace;
+            font-size: 12px;
+            color: #dbdee1;
+            height: 150px;
+            overflow-y: auto;
+            line-height: 1.5;
+            user-select: text;
+        }
+        .log-line {
+            margin-bottom: 3px;
+        }
+        .log-ok { color: #23a55a; }
+        .log-warn { color: #f0b232; }
+        .log-err { color: #da373c; }
+        .log-info { color: #5865f2; }
+
+        /* Plugin Preview Pill List */
+        .plugin-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 6px;
+        }
+        .chip {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 4px 8px;
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+        .chip.active {
+            border-color: var(--accent-green);
+            color: #fff;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="win-titlebar">
+        <div class="win-titlebar-left">
+            <div class="vencord-logo">V</div>
+            <div>
+                <div class="win-title">VencordAndroidApp Installer</div>
+                <div class="win-subtitle">Windows 10/11 GUI Edition für Android • v0.0.1</div>
+            </div>
+        </div>
+        <div class="win-controls">
+            <div class="win-dot"></div>
+            <div class="win-dot"></div>
+            <div class="win-dot" style="background:#da373c;"></div>
+        </div>
+    </div>
+
+    <div class="container">
+
+        <!-- Self-Update Alert Banner for VencordAndroidApp -->
+        <div class="update-banner" id="installer-update-banner">
+            <div>
+                <div style="font-weight:700; font-size:13px;">Neues Update für VencordAndroidApp verfügbar!</div>
+                <div style="font-size:12px; color:var(--text-secondary);" id="installer-update-text">Eine neuere APK-Version steht auf GitHub bereit.</div>
+            </div>
+            <button class="btn btn-repair" style="padding:8px 12px; font-size:12px;" onclick="downloadInstallerApkUpdate()">APK Update laden</button>
+        </div>
+
+        <!-- Version Overview -->
+        <div class="panel">
+            <div class="panel-title">Versions- & Repository-Status</div>
+            <div class="version-grid">
+                <div class="version-box">
+                    <div class="version-label">Installer App (APK)</div>
+                    <div class="version-val" id="installer-ver">v0.0.1</div>
+                    <div class="repo-tag">juli22292/vencordandroidapp</div>
+                </div>
+                <div class="version-box">
+                    <div class="version-label">VencordForAndroid (Neueste)</div>
+                    <div class="version-val" id="remote-core-ver">v0.0.1</div>
+                    <div class="repo-tag">juli22292/vencordforandroid</div>
+                </div>
+                <div class="version-box">
+                    <div class="version-label">In Discord installiert</div>
+                    <div class="version-val" id="installed-core-ver">Nicht installiert</div>
+                    <div class="repo-tag" id="installed-status-sub">Keine aktive Injektion</div>
+                </div>
+                <div class="version-box">
+                    <div class="version-label">Enthaltene Plugins</div>
+                    <div class="version-val" id="plugins-count">10 Plugins</div>
+                    <div class="repo-tag">In-App verwaltbar</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Target Discord Installation Selector -->
+        <div class="panel">
+            <div class="panel-title">Discord-Installation auf diesem Handy</div>
+            <div class="install-list" id="discord-targets-list">
+                <!-- Populated dynamically via Native Bridge -->
+            </div>
+        </div>
+
+        <!-- Windows 10/11 Vencord Installer Buttons -->
+        <div class="panel">
+            <div class="panel-title">Aktionen (VencordForAndroid)</div>
+            <div class="actions-grid">
+                <button class="btn btn-install" id="btn-install" onclick="performInstall()">
+                    <span>Install</span>
+                </button>
+                <button class="btn btn-repair" id="btn-repair" onclick="performRepair()">
+                    <span>Reinstall / Repair</span>
+                </button>
+                <button class="btn btn-uninstall" id="btn-uninstall" onclick="performUninstall()">
+                    <span>Uninstall</span>
+                </button>
+                <button class="btn btn-update" id="btn-check-updates" onclick="checkBothRepositories()">
+                    <span>Updates prüfen</span>
+                </button>
+                <button class="btn btn-launch" id="btn-open-discord" onclick="openPatchedDiscord()" style="display:none;">
+                    <span>Discord mit VencordForAndroid öffnen</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Included Plugins Overview -->
+        <div class="panel">
+            <div class="panel-title">Verfügbare Plugins in VencordForAndroid</div>
+            <div style="font-size:12px; color:var(--text-secondary);">
+                Nach dem Klick auf <b>Install</b> findest du in den <b>Discord-Einstellungen</b> den neuen Abschnitt <b>VencordForAndroid</b> (<i>Plugins</i>, <i>Einstellungen</i>, <i>Updater</i>):
+            </div>
+            <div class="plugin-chips" id="plugin-chips-list"></div>
+        </div>
+
+        <!-- Installer Log Console -->
+        <div class="panel" style="padding:10px 12px;">
+            <div class="panel-title" style="margin-bottom:6px;">Installations-Protokoll</div>
+            <div class="console-box" id="console-log"></div>
+        </div>
+
+    </div>
+
+    <script>
+        const INSTALLER_REPO = "juli22292/vencordandroidapp";
+        const CORE_REPO = "juli22292/vencordforandroid";
+        let selectedPackage = "com.discord";
+        let latestInstallerApkUrl = "https://github.com/juli22292/vencordandroidapp/releases/latest";
+
+        function log(msg, level = "") {
+            const box = document.getElementById("console-log");
+            const line = document.createElement("div");
+            line.className = "log-line " + (level ? "log-" + level : "");
+            const now = new Date().toLocaleTimeString("de-DE");
+            line.textContent = `[${now}] ${msg}`;
+            box.appendChild(line);
+            box.scrollTop = box.scrollHeight;
+        }
+
+        function refreshStateFromBridge() {
+            if (!window.AndroidInstaller) {
+                log("Vorschau-Modus aktiv (Android Bridge bereit).", "info");
+                return;
+            }
+            try {
+                const raw = window.AndroidInstaller.getSystemStatusJson();
+                const state = JSON.parse(raw);
+
+                document.getElementById("installer-ver").textContent = "v" + state.installerVersion;
+
+                if (state.isInstalled) {
+                    const el = document.getElementById("installed-core-ver");
+                    el.textContent = "v" + state.installedCoreVersion;
+                    el.style.color = "#23a55a";
+                    document.getElementById("installed-status-sub").textContent = "Aktiv in Discord (" + state.pluginCount + " Plugins)";
+                    document.getElementById("btn-open-discord").style.display = "flex";
+                } else {
+                    const el = document.getElementById("installed-core-ver");
+                    el.textContent = "Nicht installiert";
+                    el.style.color = "#f0b232";
+                    document.getElementById("installed-status-sub").textContent = "Bereit zur Installation";
+                    document.getElementById("btn-open-discord").style.display = "none";
+                }
+
+                renderTargets(state.targets || [], state.isInstalled, state.installedCoreVersion);
+                renderPluginChips(state.plugins || [], state.isInstalled);
+            } catch (e) {
+                log("Status-Fehler: " + e.message, "err");
+            }
+        }
+
+        function renderTargets(targets, isInstalled, installedVer) {
+            const list = document.getElementById("discord-targets-list");
+            list.innerHTML = "";
+
+            for (const t of targets) {
+                const row = document.createElement("div");
+                row.className = "install-row " + (t.packageName === selectedPackage ? "selected" : "");
+                row.onclick = () => {
+                    selectedPackage = t.packageName;
+                    renderTargets(targets, isInstalled, installedVer);
+                };
+
+                const pillClass = isInstalled ? "patched" : "unpatched";
+                const pillText = isInstalled
+                    ? `VencordForAndroid v${installedVer}`
+                    : (t.detected ? `Gefunden (${t.versionName})` : "Integrierter Container");
+
+                row.innerHTML = `
+                    <div class="install-left">
+                        <div class="install-name">${t.label}</div>
+                        <div class="install-path">${t.packageName} • ${t.detected ? "Installierte App" : "Vencord Android Runtime"}</div>
+                    </div>
+                    <span class="status-pill ${pillClass}">${pillText}</span>
+                `;
+                list.appendChild(row);
+            }
+        }
+
+        function renderPluginChips(plugins, isInstalled) {
+            const container = document.getElementById("plugin-chips-list");
+            container.innerHTML = "";
+            for (const p of plugins) {
+                const chip = document.createElement("span");
+                chip.className = "chip " + (isInstalled ? "active" : "");
+                chip.textContent = p;
+                container.appendChild(chip);
+            }
+        }
+
+        function setButtonsBusy(busy) {
+            document.getElementById("btn-install").disabled = busy;
+            document.getElementById("btn-repair").disabled = busy;
+            document.getElementById("btn-uninstall").disabled = busy;
+        }
+
+        function performInstall() {
+            setButtonsBusy(true);
+            log(`Starte Installation von VencordForAndroid in ${selectedPackage}...`, "info");
+            log(`Verbinde mit Repository: github.com/${CORE_REPO}`, "info");
+
+            setTimeout(() => {
+                if (window.AndroidInstaller) {
+                    const resJson = window.AndroidInstaller.installVencord(selectedPackage);
+                    const res = JSON.parse(resJson);
+                    for (const step of (res.logs || [])) {
+                        log(step, res.success ? "ok" : "err");
+                    }
+                }
+                setButtonsBusy(false);
+                refreshStateFromBridge();
+            }, 150);
+        }
+
+        function performRepair() {
+            setButtonsBusy(true);
+            log(`Starte Neuinstallation / Reparatur für ${selectedPackage}...`, "warn");
+            setTimeout(() => {
+                if (window.AndroidInstaller) {
+                    const resJson = window.AndroidInstaller.repairVencord(selectedPackage);
+                    const res = JSON.parse(resJson);
+                    for (const step of (res.logs || [])) {
+                        log(step, res.success ? "ok" : "err");
+                    }
+                }
+                setButtonsBusy(false);
+                refreshStateFromBridge();
+            }, 150);
+        }
+
+        function performUninstall() {
+            setButtonsBusy(true);
+            log(`Entferne VencordForAndroid und alle installierten Plugins aus ${selectedPackage}...`, "warn");
+            setTimeout(() => {
+                if (window.AndroidInstaller) {
+                    const resJson = window.AndroidInstaller.uninstallVencord(selectedPackage);
+                    const res = JSON.parse(resJson);
+                    for (const step of (res.logs || [])) {
+                        log(step, res.success ? "ok" : "err");
+                    }
+                }
+                setButtonsBusy(false);
+                refreshStateFromBridge();
+            }, 150);
+        }
+
+        function openPatchedDiscord() {
+            log("Starte Discord mit injiziertem VencordForAndroid...", "ok");
+            if (window.AndroidInstaller) {
+                window.AndroidInstaller.openDiscordWithVencord(selectedPackage);
+            }
+        }
+
+        function downloadInstallerApkUpdate() {
+            if (window.AndroidInstaller) {
+                window.AndroidInstaller.openExternalUrl(latestInstallerApkUrl);
+            }
+        }
+
+        async function checkBothRepositories() {
+            log("Prüfe beide GitHub-Repositories auf Updates...", "info");
+
+            // 1. Check VencordForAndroid Repo (Core & Plugins)
+            try {
+                const coreRes = await fetch(`https://api.github.com/repos/${CORE_REPO}/releases/latest`);
+                if (coreRes.ok) {
+                    const data = await coreRes.json();
+                    const tag = (data.tag_name || "0.0.1").replace(/^v/i, "");
+                    document.getElementById("remote-core-ver").textContent = "v" + tag;
+                    log(`VencordForAndroid (${CORE_REPO}): Neueste Version ist v${tag}`, "ok");
+                }
+            } catch (err) {
+                log("Konnte VencordForAndroid Release nicht online prüfen (Offline-Bundle v0.0.1 bereit).", "warn");
+            }
+
+            // 2. Check VencordAndroidApp Repo (Installer APK)
+            try {
+                const appRes = await fetch(`https://api.github.com/repos/${INSTALLER_REPO}/releases/latest`);
+                if (appRes.ok) {
+                    const data = await appRes.json();
+                    const remoteVer = (data.tag_name || "0.0.1").replace(/^v/i, "");
+                    const currentVer = window.AndroidInstaller
+                        ? JSON.parse(window.AndroidInstaller.getSystemStatusJson()).installerVersion
+                        : "0.0.1";
+
+                    if (remoteVer !== currentVer && remoteVer > currentVer) {
+                        const apkAsset = (data.assets || []).find(a => a.name.endsWith(".apk"));
+                        if (apkAsset) latestInstallerApkUrl = apkAsset.browser_download_url;
+                        document.getElementById("installer-update-text").textContent =
+                            `Version v${remoteVer} von vencordandroidapp.apk ist verfügbar (aktuell: v${currentVer}).`;
+                        document.getElementById("installer-update-banner").classList.add("visible");
+                        log(`Neues Installer-APK-Update gefunden: v${remoteVer}!`, "warn");
+                    } else {
+                        log(`VencordAndroidApp (${INSTALLER_REPO}): v${currentVer} ist aktuell.`, "ok");
+                    }
+                }
+            } catch (err) {
+                log("Installer-Update-Prüfung abgeschlossen (v0.0.1).", "info");
+            }
+        }
+
+        window.addEventListener("DOMContentLoaded", () => {
+            log("VencordAndroidApp v0.0.1 gestartet.", "info");
+            refreshStateFromBridge();
+            checkBothRepositories();
+        });
+    </script>
+</body>
+</html>
