@@ -13,7 +13,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: "17"
           distribution: "temurin"
@@ -23,9 +23,14 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      - name: Build Release APK
+      - name: Build Embedded Xposed Module APK
         run: |
-          gradle assembleRelease --no-daemon
+          gradle :xposed-module:assembleRelease --no-daemon
+          cp xposed-module/build/outputs/apk/release/xposed-module-release.apk app/src/main/assets/vencord_xposed_module.apk
+
+      - name: Build VencordAndroidApp Release APK
+        run: |
+          gradle :app:assembleRelease --no-daemon
           cp app/build/outputs/apk/release/app-release.apk vencordandroidapp.apk
 
       - name: Upload vencordandroidapp.apk Artifact

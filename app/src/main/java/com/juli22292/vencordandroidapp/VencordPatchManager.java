@@ -2,44 +2,43 @@ package com.juli22292.vencordandroidapp;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
-import android.webkit.WebStorage;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.lsposed.patch.LSPatch;
+import org.lsposed.patch.util.Logger;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
- * VencordForAndroid Patch & Bundle Manager (v0.0.6)
- * Downloads, installs, repairs, and uninstalls the official compiled Vencord bundle
- * (browser.js, browser.css, mobile_bridge.js) from juli22292/vencordforandroid.
+ * VencordPatchManager (v0.0.7)
+ * Extracts the user's currently installed official Discord APKs (base.apk + splits),
+ * patches them on-device with LSPatch + our embedded VencordForAndroid Xposed module,
+ * signs them with our persistent local keystore, and installs them via Android PackageInstaller.
  */
 public class VencordPatchManager {
 
-    public static final String INSTALLER_VERSION = "0.0.6";
-    public static final String CORE_DEFAULT_VERSION = "0.0.6";
+    public static final String INSTALLER_VERSION = "0.0.7";
+    public static final String CORE_DEFAULT_VERSION = "0.0.7";
 
-    public static final String CORE_MANIFEST_URL = "https://raw.githubusercontent.com/juli22292/vencordforandroid/main/dist/manifest.json";
-    public static final String CORE_BROWSER_JS_URL = "https://raw.githubusercontent.com/juli22292/vencordforandroid/main/dist/browser.js";
-    public static final String CORE_BROWSER_CSS_URL = "https://raw.githubusercontent.com/juli22292/vencordforandroid/main/dist/browser.css";
-    public static final String CORE_MOBILE_BRIDGE_URL = "https://raw.githubusercontent.com/juli22292/vencordforandroid/main/dist/mobile_bridge.js";
+    private static final String PREFS_NAME = "VencordPatcherPrefs_v7";
+    private static final String KEY_PATCHED = "is_patched";
+    private static final String KEY_PATCHED_PKG = "patched_package";
+    private static final String KEY_PATCHED_VERSION = "patched_version";
+    private static final String KEY_PENDING_RESUME = "pending_resume_install";
 
-    private static final String PREFS_NAME = "VencordInstallerPrefs_v6";
-    private static final String KEY_INSTALLED = "is_installed";
-    private static final String KEY_INSTALLED_VERSION = "installed_version";
-    private static final String KEY_INSTALLED_HASH = "installed_hash";
-    private static final String KEY_BRANCH = "discord_branch";
-    private static final String KEY_DESKTOP_UA = "desktop_ua";
-    private static final String KEY_AUTO_LAUNCH = "auto_launch_discord";
+    public interface PatchLogCallback {
+        void onLog(String message, String level);
+        void onFinished(boolean success);
+    }
 
     private final Context context;
     private final SharedPreferences prefs;
@@ -49,82 +48,68 @@ public class VencordPatchManager {
         this.prefs = this.context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
     }
 
-    public File getVencordDir() {
-        File dir = new File(context.getFilesDir(), "vencord");
-        if (!dir.exists()) {
-            dir.mkdirs();
-        }
+    public File getExtractedDir() {
+        File dir = new File(context.getFilesDir(), "discord_extracted");
+        if (!dir.exists()) dir.mkdirs();
         return dir;
     }
 
-    public File getBrowserJsFile() {
-        return new File(getVencordDir(), "browser.js");
+    public File getPatchedDir() {
+        File dir = new File(context.getFilesDir(), "discord_patched");
+        if (!dir.exists()) dir.mkdirs();
+        return dir;
     }
 
-    public File getBrowserCssFile() {
-        return new File(getVencordDir(), "browser.css");
+    public boolean isPatched() {
+        return prefs.getBoolean(KEY_PATCHED, false);
     }
 
-    public File getMobileBridgeFile() {
-        return new File(getVencordDir(), "mobile_bridge.js");
+    public String getPatchedPackage() {
+        return prefs.getString(KEY_PATCHED_PKG, "com.discord");
     }
 
-    public boolean isInstalled() {
-        File js = getBrowserJsFile();
-        return prefs.getBoolean(KEY_INSTALLED, false) && js.isFile() && js.length() > 10000;
+    public String getPatchedVersion() {
+        return prefs.getString(KEY_PATCHED_VERSION, CORE_DEFAULT_VERSION);
     }
 
-    public String getInstalledVersion() {
-        return prefs.getString(KEY_INSTALLED_VERSION, CORE_DEFAULT_VERSION);
+    public void markPatchedSuccess(String targetPackage) {
+        prefs.edit()
+                .putBoolean(KEY_PATCHED, true)
+                .putString(KEY_PATCHED_PKG, targetPackage)
+                .putString(KEY_PATCHED_VERSION, CORE_DEFAULT_VERSION)
+                .putBoolean(KEY_PENDING_RESUME, false)
+                .apply();
     }
 
-    public String getInstalledHash() {
-        return prefs.getString(KEY_INSTALLED_HASH, "897f97d");
+    public void clearPatchedState() {
+        prefs.edit()
+                .putBoolean(KEY_PATCHED, false)
+                .putBoolean(KEY_PENDING_RESUME, false)
+                .apply();
+        cleanDir(getExtractedDir());
+        cleanDir(getPatchedDir());
     }
 
-    public String getDiscordBranch() {
-        return prefs.getString(KEY_BRANCH, "stable");
+    public void setPendingResumeInstall(String targetPackage, boolean pending) {
+        prefs.edit()
+                .putString(KEY_PATCHED_PKG, targetPackage)
+                .putBoolean(KEY_PENDING_RESUME, pending)
+                .apply();
     }
 
-    public void setDiscordBranch(String branch) {
-        prefs.edit().putString(KEY_BRANCH, branch).apply();
+    public boolean hasPendingResumeInstall() {
+        return prefs.getBoolean(KEY_PENDING_RESUME, false);
     }
 
-    public String getDiscordUrl() {
-        String branch = getDiscordBranch();
-        if ("ptb".equals(branch)) return "https://ptb.discord.com/channels/@me";
-        if ("canary".equals(branch)) return "https://canary.discord.com/channels/@me";
-        return "https://discord.com/channels/@me";
-    }
-
-    public boolean isDesktopUaEnabled() {
-        return prefs.getBoolean(KEY_DESKTOP_UA, false);
-    }
-
-    public void setDesktopUaEnabled(boolean enabled) {
-        prefs.edit().putBoolean(KEY_DESKTOP_UA, enabled).apply();
-    }
-
-    public boolean isAutoLaunchEnabled() {
-        return prefs.getBoolean(KEY_AUTO_LAUNCH, false);
-    }
-
-    public void setAutoLaunchEnabled(boolean enabled) {
-        prefs.edit().putBoolean(KEY_AUTO_LAUNCH, enabled).apply();
-    }
-
-    public String loadInstalledFileText(File file, String fallbackAssetName) {
+    public void resumePendingPatchedInstall(String targetPackage) {
+        setPendingResumeInstall(targetPackage, false);
+        File[] files = getPatchedDir().listFiles((d, name) -> name.endsWith(".apk"));
+        if (files == null || files.length == 0) return;
+        List<File> apks = new ArrayList<>();
+        for (File f : files) apks.add(f);
         try {
-            if (file.isFile() && file.length() > 0) {
-                try (FileInputStream fis = new FileInputStream(file)) {
-                    return readStreamToString(fis);
-                }
-            }
-            try (InputStream is = context.getAssets().open(fallbackAssetName)) {
-                return readStreamToString(is);
-            }
-        } catch (Exception e) {
-            return "";
+            SessionInstaller.installApks(context, targetPackage, apks);
+        } catch (Exception ignored) {
         }
     }
 
@@ -132,224 +117,181 @@ public class VencordPatchManager {
         JSONObject root = new JSONObject();
         try {
             root.put("installerVersion", INSTALLER_VERSION);
-            root.put("isInstalled", isInstalled());
-            root.put("installedCoreVersion", getInstalledVersion());
-            root.put("installedHash", getInstalledHash());
-            root.put("branch", getDiscordBranch());
-            root.put("desktopUa", isDesktopUaEnabled());
-            root.put("autoLaunch", isAutoLaunchEnabled());
+            root.put("isPatched", isPatched());
+            root.put("patchedVersion", getPatchedVersion());
+            root.put("patchedPackage", getPatchedPackage());
+            root.put("canRequestPackageInstalls", context.getPackageManager().canRequestPackageInstalls());
 
             JSONArray targets = new JSONArray();
-            targets.put(buildBranchInfo("stable", "Discord Stable (Alle offiziellen Vencord Plugins)", "com.discord"));
-            targets.put(buildBranchInfo("ptb", "Discord PTB (Public Test Build)", "com.discord.ptb"));
-            targets.put(buildBranchInfo("canary", "Discord Canary (Alpha Build)", "com.discord.canary"));
+            targets.put(inspectDiscordPackage("com.discord", "Discord (Offizielle App)"));
+            targets.put(inspectDiscordPackage("com.discord.ptb", "Discord PTB"));
+            targets.put(inspectDiscordPackage("com.discord.canary", "Discord Canary"));
             root.put("targets", targets);
         } catch (Exception ignored) {
         }
         return root;
     }
 
-    private JSONObject buildBranchInfo(String branchId, String label, String pkgName) {
+    private JSONObject inspectDiscordPackage(String packageName, String label) {
         JSONObject obj = new JSONObject();
         try {
-            obj.put("branchId", branchId);
-            obj.put("packageName", pkgName);
+            obj.put("packageName", packageName);
             obj.put("label", label);
             PackageManager pm = context.getPackageManager();
             try {
-                PackageInfo info = pm.getPackageInfo(pkgName, 0);
+                PackageInfo info = pm.getPackageInfo(packageName, 0);
+                ApplicationInfo appInfo = info.applicationInfo;
+                int splitCount = (appInfo != null && appInfo.splitPublicSourceDirs != null)
+                        ? appInfo.splitPublicSourceDirs.length : 0;
                 obj.put("detected", true);
                 obj.put("versionName", info.versionName != null ? info.versionName : "Installiert");
+                obj.put("apkCount", 1 + splitCount);
             } catch (PackageManager.NameNotFoundException e) {
                 obj.put("detected", false);
-                obj.put("versionName", "Bereit");
+                obj.put("versionName", "Nicht installiert");
+                obj.put("apkCount", 0);
             }
         } catch (Exception ignored) {
         }
         return obj;
     }
 
-    public JSONObject installVencord(String branchId) {
-        JSONObject res = new JSONObject();
-        JSONArray logs = new JSONArray();
-        try {
-            if (branchId != null && !branchId.isEmpty()) {
-                setDiscordBranch(branchId);
-            }
-            logs.put("[1/4] Starte Installation von VencordForAndroid (Branch: " + getDiscordBranch() + ")...");
-
-            String remoteVersion = CORE_DEFAULT_VERSION;
-            String remoteHash = "897f97d";
-            String browserJs = null;
-            String browserCss = null;
-            String mobileBridgeJs = null;
-
-            logs.put("[2/4] Lade offizielles Vencord-Bundle aus github.com/juli22292/vencordforandroid...");
+    /**
+     * Runs the full real LSPatch pipeline directly on the user's currently installed official Discord APKs.
+     */
+    public void patchAndInstallAsync(final String targetPackage, final PatchLogCallback callback) {
+        new Thread(() -> {
             try {
-                String manifestRaw = fetchUrlString(CORE_MANIFEST_URL);
-                if (manifestRaw != null && !manifestRaw.isEmpty()) {
-                    JSONObject manifest = new JSONObject(manifestRaw);
-                    remoteVersion = manifest.optString("version", CORE_DEFAULT_VERSION);
-                    String sha = manifest.optString("sha256", "897f97d96c51");
-                    if (sha.length() >= 7) remoteHash = sha.substring(0, 7);
-                }
-                browserJs = fetchUrlString(CORE_BROWSER_JS_URL);
-                browserCss = fetchUrlString(CORE_BROWSER_CSS_URL);
-                mobileBridgeJs = fetchUrlString(CORE_MOBILE_BRIDGE_URL);
-            } catch (Exception netErr) {
-                logs.put("Info: Offline-Fallback wird genutzt (integriertes Vencord v" + CORE_DEFAULT_VERSION + ")...");
-            }
+                callback.onLog("[1/5] Suche installierte offizielle Discord-App (" + targetPackage + ")...", "info");
 
-            if (browserJs == null || browserJs.length() < 10000) {
-                try (InputStream is = context.getAssets().open("browser.js")) {
-                    browserJs = readStreamToString(is);
+                PackageManager pm = context.getPackageManager();
+                ApplicationInfo appInfo;
+                try {
+                    appInfo = pm.getApplicationInfo(targetPackage, 0);
+                } catch (PackageManager.NameNotFoundException e) {
+                    callback.onLog("Fehler: " + targetPackage + " ist auf diesem Handy nicht installiert! Bitte installiere zuerst die normale Discord-App aus dem Play Store.", "err");
+                    callback.onFinished(false);
+                    return;
                 }
-            }
-            if (browserCss == null || browserCss.isEmpty()) {
-                try (InputStream is = context.getAssets().open("browser.css")) {
-                    browserCss = readStreamToString(is);
+
+                // Step 1: Extract base.apk + all split APKs of currently installed Discord
+                File extractedDir = getExtractedDir();
+                File patchedDir = getPatchedDir();
+                cleanDir(extractedDir);
+                cleanDir(patchedDir);
+
+                List<String> inputApkPaths = new ArrayList<>();
+                if (appInfo.publicSourceDir != null) {
+                    File baseSrc = new File(appInfo.publicSourceDir);
+                    File baseDst = new File(extractedDir, "base.apk");
+                    copyFile(baseSrc, baseDst);
+                    inputApkPaths.add(baseDst.getAbsolutePath());
                 }
-            }
-            if (mobileBridgeJs == null || mobileBridgeJs.isEmpty()) {
-                try (InputStream is = context.getAssets().open("mobile_bridge.js")) {
-                    mobileBridgeJs = readStreamToString(is);
+                if (appInfo.splitPublicSourceDirs != null) {
+                    for (String splitPath : appInfo.splitPublicSourceDirs) {
+                        File splitSrc = new File(splitPath);
+                        File splitDst = new File(extractedDir, splitSrc.getName());
+                        copyFile(splitSrc, splitDst);
+                        inputApkPaths.add(splitDst.getAbsolutePath());
+                    }
                 }
+                callback.onLog("[2/5] " + inputApkPaths.size() + " APK-Datei(en) deiner installierten Discord-App extrahiert.", "ok");
+
+                // Step 2: Prepare embedded VencordForAndroid Xposed Module APK
+                File moduleApk = new File(context.getFilesDir(), "vencord_xposed_module.apk");
+                try (InputStream is = context.getAssets().open("vencord_xposed_module.apk");
+                     FileOutputStream fos = new FileOutputStream(moduleApk)) {
+                    byte[] buf = new byte[16384];
+                    int n;
+                    while ((n = is.read(buf)) != -1) {
+                        fos.write(buf, 0, n);
+                    }
+                }
+
+                // Step 3: Prepare local signing keystore
+                File keystoreFile = SignerHelper.getOrCreateKeystore(context);
+                callback.onLog("[3/5] Patche " + targetPackage + " mit LSPatch + VencordForAndroid Modul (v" + CORE_DEFAULT_VERSION + ")...", "info");
+
+                // Step 4: Run real LSPatch binary patcher on-device
+                List<String> lspArgs = new ArrayList<>(inputApkPaths);
+                lspArgs.add("-o");
+                lspArgs.add(patchedDir.getAbsolutePath());
+                lspArgs.add("-l");
+                lspArgs.add("0");
+                lspArgs.add("-v");
+                lspArgs.add("-m");
+                lspArgs.add(moduleApk.getAbsolutePath());
+                lspArgs.add("-k");
+                lspArgs.add(keystoreFile.getAbsolutePath());
+                lspArgs.add(SignerHelper.KEYSTORE_PASSWORD);
+                lspArgs.add(SignerHelper.KEY_ALIAS);
+                lspArgs.add(SignerHelper.KEYSTORE_PASSWORD);
+
+                Logger lspLogger = new Logger() {
+                    @Override
+                    public void d(String msg) {
+                        // Keep debug quiet unless needed
+                    }
+
+                    @Override
+                    public void i(String msg) {
+                        callback.onLog("[LSPatch] " + msg, "info");
+                    }
+
+                    @Override
+                    public void e(String msg) {
+                        callback.onLog("[LSPatch] " + msg, "err");
+                    }
+                };
+
+                new LSPatch(lspLogger, lspArgs.toArray(new String[0])).doCommandLine();
+
+                File[] outApks = patchedDir.listFiles((d, name) -> name.endsWith(".apk"));
+                if (outApks == null || outApks.length == 0) {
+                    callback.onLog("Fehler: LSPatch hat keine gepatchten APK-Dateien erzeugt.", "err");
+                    callback.onFinished(false);
+                    return;
+                }
+
+                List<File> patchedApksList = new ArrayList<>();
+                for (File f : outApks) patchedApksList.add(f);
+                callback.onLog("[4/5] Patching abgeschlossen! " + patchedApksList.size() + " gepatchte APK(s) signiert.", "ok");
+
+                // Step 5: Install patched official Discord APKs via Android PackageInstaller
+                callback.onLog("[5/5] Starte Android-Installation für deine gepatchte Discord-App (" + targetPackage + ")...", "ok");
+                SessionInstaller.installApks(context, targetPackage, patchedApksList);
+                callback.onFinished(true);
+            } catch (Throwable t) {
+                callback.onLog("Patch-Fehler: " + t.getClass().getSimpleName() + ": " + t.getMessage(), "err");
+                callback.onFinished(false);
             }
-
-            logs.put("[3/4] Installiere Vencord Runtime (" + (browserJs.length() / 1024) + " KB) & Android-Theme-Anpassung...");
-            writeFileAtomic(getBrowserJsFile(), browserJs);
-            writeFileAtomic(getBrowserCssFile(), browserCss);
-            writeFileAtomic(getMobileBridgeFile(), mobileBridgeJs);
-
-            prefs.edit()
-                    .putBoolean(KEY_INSTALLED, true)
-                    .putString(KEY_INSTALLED_VERSION, remoteVersion)
-                    .putString(KEY_INSTALLED_HASH, remoteHash)
-                    .apply();
-
-            logs.put("[4/4] VencordForAndroid v" + remoteVersion + " (" + remoteHash + ") erfolgreich installiert! Alle offiziellen Vencord-Plugins sind bereit.");
-            res.put("success", true);
-            res.put("version", remoteVersion);
-            res.put("hash", remoteHash);
-            res.put("logs", logs);
-        } catch (Exception e) {
-            try {
-                logs.put("Fehler bei der Installation: " + e.getMessage());
-                res.put("success", false);
-                res.put("logs", logs);
-            } catch (Exception ignored) {
-            }
-        }
-        return res;
+        }).start();
     }
 
-    public JSONObject repairVencord(String branchId) {
-        JSONObject res = new JSONObject();
-        JSONArray logs = new JSONArray();
-        try {
-            logs.put("[Repair] Bereinige bestehende Vencord-Bundle-Dateien...");
-            deleteBundleFiles();
-            JSONObject installRes = installVencord(branchId);
-            JSONArray installLogs = installRes.optJSONArray("logs");
-            if (installLogs != null) {
-                for (int i = 0; i < installLogs.length(); i++) {
-                    logs.put(installLogs.getString(i));
-                }
-            }
-            res.put("success", installRes.optBoolean("success", true));
-            res.put("logs", logs);
-        } catch (Exception e) {
-            try {
-                logs.put("Reparatur fehlgeschlagen: " + e.getMessage());
-                res.put("success", false);
-                res.put("logs", logs);
-            } catch (Exception ignored) {
-            }
-        }
-        return res;
+    public void uninstallPatchedDiscord(String targetPackage) {
+        clearPatchedState();
+        SessionInstaller.uninstallPackage(context, targetPackage, false);
     }
 
-    public JSONObject uninstallVencord() {
-        JSONObject res = new JSONObject();
-        JSONArray logs = new JSONArray();
-        try {
-            logs.put("[1/3] Entferne VencordForAndroid Bundle-Dateien (browser.js, browser.css, mobile_bridge.js)...");
-            deleteBundleFiles();
-
-            logs.put("[2/3] Lösche Vencord-Plugin-Daten und Einstellungen...");
-            prefs.edit().clear().apply();
-            try {
-                WebStorage.getInstance().deleteAllData();
-            } catch (Exception ignored) {
-            }
-
-            logs.put("[3/3] VencordForAndroid und alle Plugins wurden vollständig deinstalliert.");
-            res.put("success", true);
-            res.put("logs", logs);
-        } catch (Exception e) {
-            try {
-                logs.put("Deinstallation fehlgeschlagen: " + e.getMessage());
-                res.put("success", false);
-                res.put("logs", logs);
-            } catch (Exception ignored) {
-            }
-        }
-        return res;
-    }
-
-    private void deleteBundleFiles() {
-        File dir = getVencordDir();
+    private void cleanDir(File dir) {
+        if (dir == null || !dir.exists()) return;
         File[] files = dir.listFiles();
         if (files != null) {
             for (File f : files) {
+                if (f.isDirectory()) cleanDir(f);
                 f.delete();
             }
         }
-        dir.delete();
     }
 
-    private void writeFileAtomic(File dest, String content) throws Exception {
-        File tmp = new File(dest.getPath() + ".tmp");
-        try (FileOutputStream fos = new FileOutputStream(tmp)) {
-            fos.write(content.getBytes(StandardCharsets.UTF_8));
-        }
-        if (dest.exists()) {
-            dest.delete();
-        }
-        if (!tmp.renameTo(dest)) {
-            throw new Exception("Konnte Datei nicht speichern: " + dest.getName());
-        }
-    }
-
-    private String fetchUrlString(String urlString) throws Exception {
-        HttpURLConnection conn = null;
-        try {
-            URL url = new URL(urlString);
-            conn = (HttpURLConnection) url.openConnection();
-            conn.setConnectTimeout(10000);
-            conn.setReadTimeout(20000);
-            conn.setRequestProperty("User-Agent", "VencordAndroidApp/" + INSTALLER_VERSION);
-            if (conn.getResponseCode() == 200) {
-                try (InputStream is = conn.getInputStream()) {
-                    return readStreamToString(is);
-                }
-            }
-            return null;
-        } finally {
-            if (conn != null) {
-                conn.disconnect();
+    private void copyFile(File src, File dst) throws Exception {
+        try (FileInputStream fis = new FileInputStream(src);
+             FileOutputStream fos = new FileOutputStream(dst)) {
+            byte[] buf = new byte[65536];
+            int n;
+            while ((n = fis.read(buf)) != -1) {
+                fos.write(buf, 0, n);
             }
         }
-    }
-
-    private String readStreamToString(InputStream is) throws Exception {
-        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-        int nRead;
-        byte[] data = new byte[16384];
-        while ((nRead = is.read(data, 0, data.length)) != -1) {
-            buffer.write(data, 0, nRead);
-        }
-        buffer.flush();
-        return new String(buffer.toByteArray(), StandardCharsets.UTF_8);
     }
 }

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>Vencord Installer v0.0.6</title>
+    <title>Vencord Installer v0.0.7</title>
     <style>
         :root {
             --bg-window: #1e1f22;
@@ -28,7 +28,7 @@
             padding: 0;
             background-color: var(--bg-window);
             color: var(--text-primary);
-            font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             min-height: 100vh;
             display: flex;
             flex-direction: column;
@@ -48,18 +48,17 @@
             margin-bottom: 4px;
         }
         .header-title {
-            font-size: 30px;
+            font-size: 28px;
             font-weight: 800;
             color: #ffffff;
             margin: 0;
-            letter-spacing: -0.4px;
         }
         .header-sub {
             font-size: 13px;
             color: var(--text-muted);
             margin-top: 4px;
         }
-        .update-banner {
+        .banner {
             display: none;
             background: rgba(88, 101, 242, 0.18);
             border: 1px solid var(--discord-blue);
@@ -69,7 +68,11 @@
             justify-content: space-between;
             gap: 10px;
         }
-        .update-banner.visible {
+        .banner.warn {
+            background: rgba(240, 178, 50, 0.14);
+            border-color: var(--discord-yellow);
+        }
+        .banner.visible {
             display: flex;
         }
         .info-panel {
@@ -94,7 +97,7 @@
         }
         .info-val {
             color: var(--text-primary);
-            font-family: "Consolas", monospace;
+            font-family: monospace;
             font-weight: 700;
             text-align: right;
         }
@@ -160,7 +163,7 @@
         .branch-path {
             font-size: 11px;
             color: var(--text-muted);
-            font-family: "Consolas", monospace;
+            font-family: monospace;
             margin-top: 2px;
         }
         .badge-status {
@@ -205,35 +208,20 @@
         .btn-blue { background: var(--discord-blue); }
         .btn-red { background: var(--discord-red); }
         .btn-gray { background: #4e5058; }
-        .btn-launch {
-            width: 100%;
-            height: 54px;
-            font-size: 16px;
-            background: linear-gradient(90deg, #5865f2, #4752c4);
-            box-shadow: 0 4px 14px rgba(88, 101, 242, 0.35);
-        }
-        .toggle-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 8px 4px;
-            font-size: 13px;
-            color: var(--text-secondary);
-        }
         .console-box {
             background: #111214;
             border: 1px solid var(--border-color);
             border-radius: 8px;
             padding: 12px;
-            font-family: "Consolas", "Courier New", monospace;
+            font-family: monospace;
             font-size: 12px;
             color: #dbdee1;
-            height: 145px;
+            height: 175px;
             overflow-y: auto;
             line-height: 1.5;
             user-select: text;
         }
-        .log-line { margin-bottom: 3px; }
+        .log-line { margin-bottom: 3px; word-break: break-word; }
         .log-ok { color: #23a55a; }
         .log-warn { color: #f0b232; }
         .log-err { color: #da373c; }
@@ -246,10 +234,11 @@
 
         <div class="header-center">
             <h1 class="header-title">Vencord Installer</h1>
-            <div class="header-sub">VencordAndroidApp v0.0.6 • Echtes Vencord &amp; alle offiziellen Plugins für Android</div>
+            <div class="header-sub">VencordAndroidApp v0.0.7 • Android Discord APK Patcher</div>
         </div>
 
-        <div class="update-banner" id="installer-update-banner">
+        <!-- APK Self-Update Banner -->
+        <div class="banner" id="installer-update-banner">
             <div>
                 <div style="font-weight:700; font-size:13px;">Installer Update verfügbar!</div>
                 <div style="font-size:12px; color:var(--text-secondary);" id="installer-update-text">Eine neue Version von vencordandroidapp.apk steht bereit.</div>
@@ -257,38 +246,42 @@
             <button class="btn btn-blue" style="height:36px; padding:0 12px; font-size:12px;" onclick="downloadInstallerApkUpdate()">Update APK</button>
         </div>
 
-        <!-- Primary Launch Button (visible once VencordForAndroid is installed) -->
-        <button class="btn btn-launch" id="btn-launch-vencord" style="display:none;" onclick="launchDiscordWithVencord()">
-            Discord mit VencordForAndroid öffnen
-        </button>
+        <!-- Permission Banner for Android PackageInstaller -->
+        <div class="banner warn" id="install-perm-banner">
+            <div>
+                <div style="font-weight:700; font-size:13px; color:#f0b232;">Installations-Berechtigung erforderlich</div>
+                <div style="font-size:12px; color:var(--text-secondary);">Erlaube VencordAndroidApp, deine gepatchte Discord-App zu installieren.</div>
+            </div>
+            <button class="btn btn-blue" style="height:36px; padding:0 12px; font-size:12px; white-space:nowrap;" onclick="grantInstallPermission()">Erlauben</button>
+        </div>
 
-        <!-- Version / Repo Info -->
+        <!-- Version Info -->
         <div class="info-panel">
             <div class="info-line">
-                <span class="info-key">Installer APK (juli22292/vencordandroidapp):</span>
-                <span class="info-val" id="installer-ver">v0.0.6</span>
+                <span class="info-key">Installer APK (vencordandroidapp):</span>
+                <span class="info-val" id="installer-ver">v0.0.7</span>
             </div>
             <div class="info-line">
-                <span class="info-key">Installierte VencordForAndroid Version:</span>
-                <span class="info-val" id="installed-core-ver">Nicht installiert</span>
+                <span class="info-key">VencordForAndroid Status:</span>
+                <span class="info-val" id="installed-core-ver">Nicht gepatcht</span>
             </div>
             <div class="info-line">
-                <span class="info-key">Neuestes Bundle (juli22292/vencordforandroid):</span>
-                <span class="info-val" id="remote-core-ver">v0.0.6 (897f97d)</span>
+                <span class="info-key">Neuestes Modul (vencordforandroid):</span>
+                <span class="info-val" id="remote-core-ver">v0.0.7 (0651966)</span>
             </div>
             <div class="info-line">
-                <span class="info-key">Enthaltene Plugins:</span>
-                <span class="info-val" style="color:#23a55a;">Alle offiziellen Vencord Plugins</span>
+                <span class="info-key">Patch-Engine:</span>
+                <span class="info-val" style="color:#23a55a;">LSPatch (Direkt in com.discord)</span>
             </div>
         </div>
 
-        <!-- Discord Branch Selector -->
+        <!-- Installed Discord App Selector -->
         <div>
-            <div class="section-label">Discord Branch für VencordForAndroid auswählen</div>
+            <div class="section-label">Installierte Discord-App zum Patchen auswählen</div>
             <div class="installs-box" id="discord-targets-list"></div>
         </div>
 
-        <!-- Action Buttons (Install, Reinstall / Repair, Uninstall) -->
+        <!-- Main Installer Buttons -->
         <div class="buttons-row">
             <button class="btn btn-green" id="btn-install" onclick="performInstall()">
                 Install
@@ -301,24 +294,17 @@
             </button>
         </div>
 
-        <!-- Mobile Options -->
-        <div class="info-panel" style="gap:4px;">
-            <label class="toggle-row">
-                <span>Beim Start direkt Discord mit Vencord öffnen</span>
-                <input type="checkbox" id="chk-auto-launch" onchange="toggleAutoLaunch(this.checked)" />
-            </label>
-            <label class="toggle-row">
-                <span>Desktop-UI aktivieren (PC-Seitenleiste wie auf Windows)</span>
-                <input type="checkbox" id="chk-desktop-ui" onchange="toggleDesktopUi(this.checked)" />
-            </label>
+        <div style="display:flex; gap:10px;">
+            <button class="btn btn-gray" style="flex:1;" onclick="checkBothRepositories()">
+                Updates prüfen
+            </button>
+            <button class="btn btn-blue" id="btn-open-discord" style="flex:1;" onclick="openOfficialDiscord()">
+                Discord öffnen
+            </button>
         </div>
 
-        <button class="btn btn-gray" onclick="checkBothRepositories()">
-            Nach Updates suchen (Installer &amp; VencordForAndroid)
-        </button>
-
         <div>
-            <div class="section-label">Installations-Protokoll</div>
+            <div class="section-label">Patcher-Protokoll</div>
             <div class="console-box" id="console-log"></div>
         </div>
 
@@ -327,10 +313,10 @@
     <script>
         const INSTALLER_REPO = "juli22292/vencordandroidapp";
         const CORE_REPO = "juli22292/vencordforandroid";
-        let selectedBranch = "stable";
+        let selectedPackage = "com.discord";
         let latestInstallerApkUrl = "https://github.com/juli22292/vencordandroidapp/releases/latest";
 
-        function log(msg, level = "") {
+        function appendPatchLog(msg, level = "") {
             const box = document.getElementById("console-log");
             const line = document.createElement("div");
             line.className = "log-line " + (level ? "log-" + level : "");
@@ -340,56 +326,69 @@
             box.scrollTop = box.scrollHeight;
         }
 
+        function setButtonsBusy(busy) {
+            document.getElementById("btn-install").disabled = busy;
+            document.getElementById("btn-repair").disabled = busy;
+            document.getElementById("btn-uninstall").disabled = busy;
+        }
+
+        function onPatchFinished(success) {
+            setButtonsBusy(false);
+            refreshStateFromBridge();
+        }
+
         function refreshStateFromBridge() {
             if (!window.AndroidInstaller) return;
             try {
                 const state = JSON.parse(window.AndroidInstaller.getSystemStatusJson());
                 document.getElementById("installer-ver").textContent = "v" + state.installerVersion;
-                selectedBranch = state.branch || "stable";
-                document.getElementById("chk-auto-launch").checked = Boolean(state.autoLaunch);
-                document.getElementById("chk-desktop-ui").checked = Boolean(state.desktopUa);
 
-                const launchBtn = document.getElementById("btn-launch-vencord");
-                const verEl = document.getElementById("installed-core-ver");
-
-                if (state.isInstalled) {
-                    verEl.textContent = `v${state.installedCoreVersion} (${state.installedHash || "897f97d"})`;
-                    verEl.style.color = "#23a55a";
-                    launchBtn.style.display = "flex";
+                const permBanner = document.getElementById("install-perm-banner");
+                if (state.canRequestPackageInstalls) {
+                    permBanner.classList.remove("visible");
                 } else {
-                    verEl.textContent = "Nicht installiert";
-                    verEl.style.color = "#f0b232";
-                    launchBtn.style.display = "none";
+                    permBanner.classList.add("visible");
                 }
 
-                renderTargets(state.targets || [], state.isInstalled, state.installedCoreVersion);
+                const verEl = document.getElementById("installed-core-ver");
+                if (state.isPatched) {
+                    verEl.textContent = `Gepatcht (v${state.patchedVersion})`;
+                    verEl.style.color = "#23a55a";
+                } else {
+                    verEl.textContent = "Nicht gepatcht";
+                    verEl.style.color = "#f0b232";
+                }
+
+                renderTargets(state.targets || [], state.isPatched, state.patchedPackage, state.patchedVersion);
             } catch (e) {
-                log("Status-Fehler: " + e.message, "err");
+                appendPatchLog("Status-Fehler: " + e.message, "err");
             }
         }
 
-        function renderTargets(targets, isInstalled, installedVer) {
+        function renderTargets(targets, isPatched, patchedPkg, patchedVer) {
             const list = document.getElementById("discord-targets-list");
             list.innerHTML = "";
 
             for (const t of targets) {
                 const row = document.createElement("div");
-                row.className = "install-item " + (t.branchId === selectedBranch ? "selected" : "");
+                row.className = "install-item " + (t.packageName === selectedPackage ? "selected" : "");
                 row.onclick = () => {
-                    selectedBranch = t.branchId;
-                    renderTargets(targets, isInstalled, installedVer);
+                    selectedPackage = t.packageName;
+                    renderTargets(targets, isPatched, patchedPkg, patchedVer);
                 };
 
-                const isPatchedHere = isInstalled && t.branchId === selectedBranch;
+                const isPatchedHere = isPatched && t.packageName === patchedPkg;
                 const badgeClass = isPatchedHere ? "patched" : "";
-                const badgeText = isPatchedHere ? `INSTALLIERT (v${installedVer})` : t.versionName;
+                const badgeText = isPatchedHere
+                    ? `GEPATCHT (v${patchedVer})`
+                    : (t.detected ? `${t.versionName}` : "Nicht installiert");
 
                 row.innerHTML = `
                     <div class="radio-left">
                         <div class="radio-circle"></div>
                         <div>
                             <div class="branch-title">${t.label}</div>
-                            <div class="branch-path">${t.packageName}</div>
+                            <div class="branch-path">${t.packageName} ${t.detected ? `• ${t.apkCount} APK(s)` : ""}</div>
                         </div>
                     </div>
                     <span class="badge-status ${badgeClass}">${badgeText}</span>
@@ -398,72 +397,37 @@
             }
         }
 
-        function setButtonsBusy(busy) {
-            document.getElementById("btn-install").disabled = busy;
-            document.getElementById("btn-repair").disabled = busy;
-            document.getElementById("btn-uninstall").disabled = busy;
+        function grantInstallPermission() {
+            if (window.AndroidInstaller) window.AndroidInstaller.requestInstallPermission();
         }
 
         function performInstall() {
             setButtonsBusy(true);
-            log(`Installiere offizielles VencordForAndroid (${selectedBranch})...`, "info");
-            setTimeout(() => {
-                if (window.AndroidInstaller) {
-                    const res = JSON.parse(window.AndroidInstaller.installVencord(selectedBranch));
-                    for (const step of (res.logs || [])) {
-                        log(step, res.success ? "ok" : "err");
-                    }
-                    if (res.success) {
-                        log("Klicke oben auf 'Discord mit VencordForAndroid öffnen' – in den Discord-Einstellungen findest du jetzt Vencord Settings & alle offiziellen Plugins!", "ok");
-                    }
-                }
-                setButtonsBusy(false);
-                refreshStateFromBridge();
-            }, 150);
+            appendPatchLog(`Starte direktes Patchen von ${selectedPackage} (dauert ca. 10–20 Sekunden)...`, "info");
+            if (window.AndroidInstaller) {
+                window.AndroidInstaller.installVencord(selectedPackage);
+            }
         }
 
         function performRepair() {
             setButtonsBusy(true);
-            log(`Starte Neuinstallation / Reparatur (${selectedBranch})...`, "warn");
-            setTimeout(() => {
-                if (window.AndroidInstaller) {
-                    const res = JSON.parse(window.AndroidInstaller.repairVencord(selectedBranch));
-                    for (const step of (res.logs || [])) {
-                        log(step, res.success ? "ok" : "err");
-                    }
-                }
-                setButtonsBusy(false);
-                refreshStateFromBridge();
-            }, 150);
+            appendPatchLog(`Starte Reinstall / Repair für ${selectedPackage}...`, "warn");
+            if (window.AndroidInstaller) {
+                window.AndroidInstaller.repairVencord(selectedPackage);
+            }
         }
 
         function performUninstall() {
             setButtonsBusy(true);
-            log("Deinstalliere VencordForAndroid und alle Plugin-Daten...", "warn");
-            setTimeout(() => {
-                if (window.AndroidInstaller) {
-                    const res = JSON.parse(window.AndroidInstaller.uninstallVencord());
-                    for (const step of (res.logs || [])) {
-                        log(step, res.success ? "ok" : "err");
-                    }
-                }
-                setButtonsBusy(false);
-                refreshStateFromBridge();
-            }, 150);
-        }
-
-        function launchDiscordWithVencord() {
             if (window.AndroidInstaller) {
-                window.AndroidInstaller.launchVencordDiscord();
+                window.AndroidInstaller.uninstallVencord(selectedPackage);
             }
         }
 
-        function toggleAutoLaunch(checked) {
-            if (window.AndroidInstaller) window.AndroidInstaller.setAutoLaunch(checked);
-        }
-
-        function toggleDesktopUi(checked) {
-            if (window.AndroidInstaller) window.AndroidInstaller.setDesktopUi(checked);
+        function openOfficialDiscord() {
+            if (window.AndroidInstaller) {
+                window.AndroidInstaller.openOfficialDiscordApp(selectedPackage);
+            }
         }
 
         function downloadInstallerApkUpdate() {
@@ -487,29 +451,27 @@
         }
 
         async function checkBothRepositories() {
-            log("Prüfe GitHub-Repositories auf neue Versionen...", "info");
+            appendPatchLog("Prüfe GitHub-Repositories auf Updates...", "info");
             const currentVer = window.AndroidInstaller
                 ? JSON.parse(window.AndroidInstaller.getSystemStatusJson()).installerVersion
-                : "0.0.6";
+                : "0.0.7";
 
             try {
                 const manifestRes = await fetch(`https://raw.githubusercontent.com/${CORE_REPO}/main/dist/manifest.json`, { cache: "no-store" });
                 if (manifestRes.ok) {
                     const manifest = await manifestRes.json();
-                    const remoteCoreVer = (manifest.version || "0.0.6").replace(/^v/i, "");
-                    const hash = (manifest.sha256 || "897f97d").slice(0, 7);
+                    const remoteCoreVer = (manifest.version || "0.0.7").replace(/^v/i, "");
+                    const hash = (manifest.sha256 || "0651966").slice(0, 7);
                     document.getElementById("remote-core-ver").textContent = `v${remoteCoreVer} (${hash})`;
-                    log(`VencordForAndroid (${CORE_REPO}): Neueste Version v${remoteCoreVer} (${hash})`, "ok");
+                    appendPatchLog(`VencordForAndroid (${CORE_REPO}): Neueste Version v${remoteCoreVer} (${hash})`, "ok");
                 }
-            } catch (_) {
-                log("VencordForAndroid v0.0.6 bereit.", "info");
-            }
+            } catch (_) {}
 
             try {
                 const appRes = await fetch(`https://api.github.com/repos/${INSTALLER_REPO}/releases/latest`);
                 if (appRes.ok) {
                     const data = await appRes.json();
-                    const remoteVer = (data.tag_name || "0.0.6").replace(/^v/i, "");
+                    const remoteVer = (data.tag_name || "0.0.7").replace(/^v/i, "");
                     const apkAsset = (data.assets || []).find(a => a.name.endsWith(".apk"));
                     if (apkAsset) latestInstallerApkUrl = apkAsset.browser_download_url;
 
@@ -517,16 +479,16 @@
                         document.getElementById("installer-update-text").textContent =
                             `Version v${remoteVer} von vencordandroidapp.apk ist verfügbar (installiert: v${currentVer}).`;
                         document.getElementById("installer-update-banner").classList.add("visible");
-                        log(`Neues Installer-APK-Update verfügbar: v${remoteVer}`, "warn");
+                        appendPatchLog(`Neues Installer-APK-Update verfügbar: v${remoteVer}`, "warn");
                     } else {
-                        log(`VencordAndroidApp (${INSTALLER_REPO}): v${currentVer} ist aktuell.`, "ok");
+                        appendPatchLog(`VencordAndroidApp (${INSTALLER_REPO}): v${currentVer} ist aktuell.`, "ok");
                     }
                 }
             } catch (_) {}
         }
 
         window.addEventListener("DOMContentLoaded", () => {
-            log("Vencord Installer v0.0.6 bereit.", "info");
+            appendPatchLog("Vencord Installer v0.0.7 (LSPatch-Engine) bereit.", "info");
             refreshStateFromBridge();
             checkBothRepositories();
         });
