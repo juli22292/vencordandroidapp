@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>VencordAndroidApp Installer</title>
+    <title>VencordAndroidApp Installer v0.0.2</title>
     <style>
         :root {
             --bg-primary: #1e1f22;
@@ -34,7 +34,6 @@
             display: flex;
             flex-direction: column;
         }
-        /* Windows 10/11 Titlebar Style */
         .win-titlebar {
             background: #111214;
             padding: 12px 16px;
@@ -90,7 +89,6 @@
             flex-direction: column;
             gap: 14px;
         }
-        /* Installer Update Alert Banner */
         .update-banner {
             display: none;
             background: rgba(88, 101, 242, 0.16);
@@ -104,7 +102,19 @@
         .update-banner.visible {
             display: flex;
         }
-        /* Version Info Panel (Like PC Vencord Installer) */
+        .hook-banner {
+            display: none;
+            background: rgba(240, 178, 50, 0.14);
+            border: 1px solid var(--accent-yellow);
+            border-radius: 10px;
+            padding: 12px 14px;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+        .hook-banner.visible {
+            display: flex;
+        }
         .panel {
             background: var(--bg-secondary);
             border: 1px solid var(--border-color);
@@ -149,7 +159,6 @@
             margin-top: 3px;
             word-break: break-all;
         }
-        /* Discord Installation Table */
         .install-list {
             display: flex;
             flex-direction: column;
@@ -203,7 +212,6 @@
         .status-pill.unpatched {
             background: #4e5058;
         }
-        /* PC Installer Action Buttons Grid */
         .actions-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -246,10 +254,16 @@
             grid-column: 1 / -1;
             background: linear-gradient(90deg, #5865f2, #4752c4);
             padding: 14px;
-            font-size: 15px;
+            font-size: 14px;
             box-shadow: 0 4px 12px rgba(88, 101, 242, 0.3);
         }
-        /* Console Output */
+        .btn-settings-direct {
+            grid-column: 1 / -1;
+            background: #2b2d31;
+            border: 1px solid #5865f2;
+            padding: 12px;
+            font-size: 13px;
+        }
         .console-box {
             background: #111214;
             border: 1px solid var(--border-color);
@@ -270,8 +284,6 @@
         .log-warn { color: #f0b232; }
         .log-err { color: #da373c; }
         .log-info { color: #5865f2; }
-
-        /* Plugin Preview Pill List */
         .plugin-chips {
             display: flex;
             flex-wrap: wrap;
@@ -290,16 +302,55 @@
             border-color: var(--accent-green);
             color: #fff;
         }
+        /* Mandatory Lock Overlay when a version is marked corrupted */
+        .corrupted-lock-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(17, 18, 20, 0.96);
+            z-index: 999999;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            text-align: center;
+        }
+        .corrupted-lock-overlay.visible {
+            display: flex;
+        }
+        .corrupted-card {
+            background: #2b2d31;
+            border: 2px solid #da373c;
+            border-radius: 14px;
+            padding: 22px;
+            max-width: 420px;
+            width: 100%;
+        }
     </style>
 </head>
 <body>
+
+    <!-- Full-screen lock if version is ever marked as corrupted -->
+    <div class="corrupted-lock-overlay" id="corrupted-lock-overlay">
+        <div class="corrupted-card">
+            <div style="background:#da373c;color:#fff;display:inline-block;padding:4px 12px;border-radius:999px;font-size:12px;font-weight:700;margin-bottom:12px;">
+                VERSION BESCHÄDIGT &amp; GESPERRT
+            </div>
+            <h2 style="margin:0 0 10px 0;font-size:19px;">Pflicht-Update erforderlich</h2>
+            <p style="font-size:13px;color:var(--text-secondary);line-height:1.5;margin:0 0 18px 0;" id="corrupted-lock-msg">
+                Diese Version wurde als beschädigt markiert und ist nicht mehr nutzbar. Bitte aktualisiere sofort auf die neueste Version.
+            </p>
+            <button class="btn btn-install" style="width:100%;" onclick="downloadInstallerApkUpdate()">
+                Neueste APK jetzt herunterladen
+            </button>
+        </div>
+    </div>
 
     <div class="win-titlebar">
         <div class="win-titlebar-left">
             <div class="vencord-logo">V</div>
             <div>
                 <div class="win-title">VencordAndroidApp Installer</div>
-                <div class="win-subtitle">Windows 10/11 GUI Edition für Android • v0.0.1</div>
+                <div class="win-subtitle">Direkt-Injektor für offizielle Discord-App • v0.0.2</div>
             </div>
         </div>
         <div class="win-controls">
@@ -320,18 +371,29 @@
             <button class="btn btn-repair" style="padding:8px 12px; font-size:12px;" onclick="downloadInstallerApkUpdate()">APK Update laden</button>
         </div>
 
+        <!-- Non-Root In-App Hook Service Status Banner -->
+        <div class="hook-banner" id="hook-service-banner">
+            <div>
+                <div style="font-weight:700; font-size:13px; color:#f0b232;">In-App-Injektor für deine Discord-App aktivieren</div>
+                <div style="font-size:12px; color:var(--text-secondary);">
+                    Aktiviere den Dienst <b>VencordForAndroid Discord Injector</b>, damit das Menü <i>VencordForAndroid</i> direkt in den Einstellungen deiner installierten Discord-App erscheint (ohne Neuanmeldung!).
+                </div>
+            </div>
+            <button class="btn btn-repair" style="padding:8px 12px; font-size:12px; white-space:nowrap;" onclick="enableHookService()">Dienst aktivieren</button>
+        </div>
+
         <!-- Version Overview -->
         <div class="panel">
-            <div class="panel-title">Versions- & Repository-Status</div>
+            <div class="panel-title">Versions- &amp; Repository-Status</div>
             <div class="version-grid">
                 <div class="version-box">
                     <div class="version-label">Installer App (APK)</div>
-                    <div class="version-val" id="installer-ver">v0.0.1</div>
+                    <div class="version-val" id="installer-ver">v0.0.2</div>
                     <div class="repo-tag">juli22292/vencordandroidapp</div>
                 </div>
                 <div class="version-box">
                     <div class="version-label">VencordForAndroid (Neueste)</div>
-                    <div class="version-val" id="remote-core-ver">v0.0.1</div>
+                    <div class="version-val" id="remote-core-ver">v0.0.2</div>
                     <div class="repo-tag">juli22292/vencordforandroid</div>
                 </div>
                 <div class="version-box">
@@ -340,24 +402,22 @@
                     <div class="repo-tag" id="installed-status-sub">Keine aktive Injektion</div>
                 </div>
                 <div class="version-box">
-                    <div class="version-label">Enthaltene Plugins</div>
-                    <div class="version-val" id="plugins-count">10 Plugins</div>
-                    <div class="repo-tag">In-App verwaltbar</div>
+                    <div class="version-label">Discord In-App Hook</div>
+                    <div class="version-val" id="hook-status-val">Prüfe...</div>
+                    <div class="repo-tag" id="hook-status-sub">Bestehende Discord-App</div>
                 </div>
             </div>
         </div>
 
-        <!-- Target Discord Installation Selector -->
+        <!-- Target Official Discord Installation Selector -->
         <div class="panel">
-            <div class="panel-title">Discord-Installation auf diesem Handy</div>
-            <div class="install-list" id="discord-targets-list">
-                <!-- Populated dynamically via Native Bridge -->
-            </div>
+            <div class="panel-title">Bestehende offizielle Discord-App auswählen</div>
+            <div class="install-list" id="discord-targets-list"></div>
         </div>
 
         <!-- Windows 10/11 Vencord Installer Buttons -->
         <div class="panel">
-            <div class="panel-title">Aktionen (VencordForAndroid)</div>
+            <div class="panel-title">Aktionen (Direkt in deine Discord-App)</div>
             <div class="actions-grid">
                 <button class="btn btn-install" id="btn-install" onclick="performInstall()">
                     <span>Install</span>
@@ -371,17 +431,20 @@
                 <button class="btn btn-update" id="btn-check-updates" onclick="checkBothRepositories()">
                     <span>Updates prüfen</span>
                 </button>
-                <button class="btn btn-launch" id="btn-open-discord" onclick="openPatchedDiscord()" style="display:none;">
-                    <span>Discord mit VencordForAndroid öffnen</span>
+                <button class="btn btn-launch" id="btn-open-discord" onclick="openExistingOfficialDiscord()" style="display:none;">
+                    <span>Installierte offizielle Discord-App öffnen</span>
+                </button>
+                <button class="btn btn-settings-direct" id="btn-open-vfa-settings" onclick="openVencordSettingsDirect()" style="display:none;">
+                    <span>VencordForAndroid Menü (Plugins / Einstellungen / Updater) öffnen</span>
                 </button>
             </div>
         </div>
 
         <!-- Included Plugins Overview -->
         <div class="panel">
-            <div class="panel-title">Verfügbare Plugins in VencordForAndroid</div>
+            <div class="panel-title">Inkludierte Plugins in VencordForAndroid (v0.0.2)</div>
             <div style="font-size:12px; color:var(--text-secondary);">
-                Nach dem Klick auf <b>Install</b> findest du in den <b>Discord-Einstellungen</b> den neuen Abschnitt <b>VencordForAndroid</b> (<i>Plugins</i>, <i>Einstellungen</i>, <i>Updater</i>):
+                Wird direkt in deine installierte <b>Discord-App</b> injiziert (dein Account bleibt eingeloggt). In den <b>Discord-Einstellungen</b> erscheint der Bereich <b>VencordForAndroid</b>:
             </div>
             <div class="plugin-chips" id="plugin-chips-list"></div>
         </div>
@@ -411,28 +474,49 @@
         }
 
         function refreshStateFromBridge() {
-            if (!window.AndroidInstaller) {
-                log("Vorschau-Modus aktiv (Android Bridge bereit).", "info");
-                return;
-            }
+            if (!window.AndroidInstaller) return;
             try {
                 const raw = window.AndroidInstaller.getSystemStatusJson();
                 const state = JSON.parse(raw);
 
                 document.getElementById("installer-ver").textContent = "v" + state.installerVersion;
 
+                const hookVal = document.getElementById("hook-status-val");
+                const hookSub = document.getElementById("hook-status-sub");
+                const hookBanner = document.getElementById("hook-service-banner");
+
+                if (state.hookServiceEnabled) {
+                    hookVal.textContent = "Aktiv";
+                    hookVal.style.color = "#23a55a";
+                    hookSub.textContent = "Direkt in com.discord";
+                    hookBanner.classList.remove("visible");
+                } else {
+                    hookVal.textContent = "Inaktiv";
+                    hookVal.style.color = "#f0b232";
+                    hookSub.textContent = "Tippe oben auf 'Dienst aktivieren'";
+                    if (state.isInstalled) {
+                        hookBanner.classList.add("visible");
+                    } else {
+                        hookBanner.classList.remove("visible");
+                    }
+                }
+
                 if (state.isInstalled) {
                     const el = document.getElementById("installed-core-ver");
                     el.textContent = "v" + state.installedCoreVersion;
                     el.style.color = "#23a55a";
-                    document.getElementById("installed-status-sub").textContent = "Aktiv in Discord (" + state.pluginCount + " Plugins)";
+                    document.getElementById("installed-status-sub").textContent = "In offizieller Discord-App (" + state.pluginCount + " Plugins)";
                     document.getElementById("btn-open-discord").style.display = "flex";
+                    document.getElementById("btn-open-vfa-settings").style.display = "flex";
                 } else {
                     const el = document.getElementById("installed-core-ver");
-                    el.textContent = "Nicht installiert";
-                    el.style.color = "#f0b232";
-                    document.getElementById("installed-status-sub").textContent = "Bereit zur Installation";
+                    el.textContent = state.isCorrupted001 ? "v0.0.1 (Beschädigt!)" : "Nicht installiert";
+                    el.style.color = state.isCorrupted001 ? "#da373c" : "#f0b232";
+                    document.getElementById("installed-status-sub").textContent = state.isCorrupted001
+                        ? "Bitte auf Install / Repair klicken!"
+                        : "Bereit zur Injektion in Discord";
                     document.getElementById("btn-open-discord").style.display = "none";
+                    document.getElementById("btn-open-vfa-settings").style.display = "none";
                 }
 
                 renderTargets(state.targets || [], state.isInstalled, state.installedCoreVersion);
@@ -454,15 +538,16 @@
                     renderTargets(targets, isInstalled, installedVer);
                 };
 
-                const pillClass = isInstalled ? "patched" : "unpatched";
-                const pillText = isInstalled
+                const isPatchedHere = isInstalled && t.packageName === selectedPackage;
+                const pillClass = isPatchedHere ? "patched" : "unpatched";
+                const pillText = isPatchedHere
                     ? `VencordForAndroid v${installedVer}`
-                    : (t.detected ? `Gefunden (${t.versionName})` : "Integrierter Container");
+                    : (t.detected ? `Installiert (${t.versionName})` : "Nicht gefunden");
 
                 row.innerHTML = `
                     <div class="install-left">
                         <div class="install-name">${t.label}</div>
-                        <div class="install-path">${t.packageName} • ${t.detected ? "Installierte App" : "Vencord Android Runtime"}</div>
+                        <div class="install-path">${t.packageName} • ${t.detected ? "Bestehende App (kein Re-Login nötig)" : "Nicht auf dem Gerät"}</div>
                     </div>
                     <span class="status-pill ${pillClass}">${pillText}</span>
                 `;
@@ -489,15 +574,15 @@
 
         function performInstall() {
             setButtonsBusy(true);
-            log(`Starte Installation von VencordForAndroid in ${selectedPackage}...`, "info");
-            log(`Verbinde mit Repository: github.com/${CORE_REPO}`, "info");
-
+            log(`Injiziere VencordForAndroid direkt in bestehende Discord-App (${selectedPackage})...`, "info");
             setTimeout(() => {
                 if (window.AndroidInstaller) {
-                    const resJson = window.AndroidInstaller.installVencord(selectedPackage);
-                    const res = JSON.parse(resJson);
+                    const res = JSON.parse(window.AndroidInstaller.installVencord(selectedPackage));
                     for (const step of (res.logs || [])) {
                         log(step, res.success ? "ok" : "err");
+                    }
+                    if (res.success && !res.hookServiceEnabled) {
+                        log("WICHTIG: Aktiviere oben 'Dienst aktivieren', damit das Menü direkt in deiner Discord-App angezeigt wird!", "warn");
                     }
                 }
                 setButtonsBusy(false);
@@ -507,11 +592,10 @@
 
         function performRepair() {
             setButtonsBusy(true);
-            log(`Starte Neuinstallation / Reparatur für ${selectedPackage}...`, "warn");
+            log(`Repariere VencordForAndroid in deiner bestehenden Discord-App (${selectedPackage})...`, "warn");
             setTimeout(() => {
                 if (window.AndroidInstaller) {
-                    const resJson = window.AndroidInstaller.repairVencord(selectedPackage);
-                    const res = JSON.parse(resJson);
+                    const res = JSON.parse(window.AndroidInstaller.repairVencord(selectedPackage));
                     for (const step of (res.logs || [])) {
                         log(step, res.success ? "ok" : "err");
                     }
@@ -523,11 +607,10 @@
 
         function performUninstall() {
             setButtonsBusy(true);
-            log(`Entferne VencordForAndroid und alle installierten Plugins aus ${selectedPackage}...`, "warn");
+            log(`Deinstalliere VencordForAndroid und alle Plugins aus ${selectedPackage}...`, "warn");
             setTimeout(() => {
                 if (window.AndroidInstaller) {
-                    const resJson = window.AndroidInstaller.uninstallVencord(selectedPackage);
-                    const res = JSON.parse(resJson);
+                    const res = JSON.parse(window.AndroidInstaller.uninstallVencord(selectedPackage));
                     for (const step of (res.logs || [])) {
                         log(step, res.success ? "ok" : "err");
                     }
@@ -537,10 +620,22 @@
             }, 150);
         }
 
-        function openPatchedDiscord() {
-            log("Starte Discord mit injiziertem VencordForAndroid...", "ok");
+        function openExistingOfficialDiscord() {
+            log(`Starte deine installierte offizielle Discord-App (${selectedPackage})...`, "ok");
             if (window.AndroidInstaller) {
-                window.AndroidInstaller.openDiscordWithVencord(selectedPackage);
+                window.AndroidInstaller.openOfficialDiscordApp(selectedPackage);
+            }
+        }
+
+        function openVencordSettingsDirect() {
+            if (window.AndroidInstaller) {
+                window.AndroidInstaller.openVencordSettingsSheet("plugins");
+            }
+        }
+
+        function enableHookService() {
+            if (window.AndroidInstaller) {
+                window.AndroidInstaller.openDiscordHookPermissionSettings();
             }
         }
 
@@ -551,19 +646,30 @@
         }
 
         async function checkBothRepositories() {
-            log("Prüfe beide GitHub-Repositories auf Updates...", "info");
+            log("Prüfe beide GitHub-Repositories auf Updates & Versionsrichtlinien...", "info");
 
-            // 1. Check VencordForAndroid Repo (Core & Plugins)
+            const currentVer = window.AndroidInstaller
+                ? JSON.parse(window.AndroidInstaller.getSystemStatusJson()).installerVersion
+                : "0.0.2";
+
+            // 1. Check VencordForAndroid manifest for corrupted version lock & latest bundle version
             try {
-                const coreRes = await fetch(`https://api.github.com/repos/${CORE_REPO}/releases/latest`);
-                if (coreRes.ok) {
-                    const data = await coreRes.json();
-                    const tag = (data.tag_name || "0.0.1").replace(/^v/i, "");
-                    document.getElementById("remote-core-ver").textContent = "v" + tag;
-                    log(`VencordForAndroid (${CORE_REPO}): Neueste Version ist v${tag}`, "ok");
+                const manifestRes = await fetch(`https://raw.githubusercontent.com/${CORE_REPO}/main/dist/manifest.json`, { cache: "no-store" });
+                if (manifestRes.ok) {
+                    const manifest = await manifestRes.json();
+                    const remoteCoreVer = (manifest.version || "0.0.2").replace(/^v/i, "");
+                    document.getElementById("remote-core-ver").textContent = "v" + remoteCoreVer;
+                    log(`VencordForAndroid (${CORE_REPO}): Neueste Version ist v${remoteCoreVer}`, "ok");
+
+                    if (Array.isArray(manifest.corruptedVersions) && manifest.corruptedVersions.includes(currentVer)) {
+                        document.getElementById("corrupted-lock-msg").textContent =
+                            manifest.corruptedMessage || `Version v${currentVer} ist als beschädigt markiert und unbenutzbar! Bitte sofort auf v${remoteCoreVer} aktualisieren.`;
+                        document.getElementById("corrupted-lock-overlay").classList.add("visible");
+                        log(`KRITISCH: Version v${currentVer} ist als beschädigt gesperrt!`, "err");
+                    }
                 }
-            } catch (err) {
-                log("Konnte VencordForAndroid Release nicht online prüfen (Offline-Bundle v0.0.1 bereit).", "warn");
+            } catch (_) {
+                log("VencordForAndroid Release-Check abgeschlossen (v0.0.2 bereit).", "info");
             }
 
             // 2. Check VencordAndroidApp Repo (Installer APK)
@@ -571,29 +677,26 @@
                 const appRes = await fetch(`https://api.github.com/repos/${INSTALLER_REPO}/releases/latest`);
                 if (appRes.ok) {
                     const data = await appRes.json();
-                    const remoteVer = (data.tag_name || "0.0.1").replace(/^v/i, "");
-                    const currentVer = window.AndroidInstaller
-                        ? JSON.parse(window.AndroidInstaller.getSystemStatusJson()).installerVersion
-                        : "0.0.1";
+                    const remoteVer = (data.tag_name || "0.0.2").replace(/^v/i, "");
+                    const apkAsset = (data.assets || []).find(a => a.name.endsWith(".apk"));
+                    if (apkAsset) latestInstallerApkUrl = apkAsset.browser_download_url;
 
                     if (remoteVer !== currentVer && remoteVer > currentVer) {
-                        const apkAsset = (data.assets || []).find(a => a.name.endsWith(".apk"));
-                        if (apkAsset) latestInstallerApkUrl = apkAsset.browser_download_url;
                         document.getElementById("installer-update-text").textContent =
                             `Version v${remoteVer} von vencordandroidapp.apk ist verfügbar (aktuell: v${currentVer}).`;
                         document.getElementById("installer-update-banner").classList.add("visible");
-                        log(`Neues Installer-APK-Update gefunden: v${remoteVer}!`, "warn");
+                        log(`Neues Installer-APK-Update verfügbar: v${remoteVer}!`, "warn");
                     } else {
                         log(`VencordAndroidApp (${INSTALLER_REPO}): v${currentVer} ist aktuell.`, "ok");
                     }
                 }
-            } catch (err) {
-                log("Installer-Update-Prüfung abgeschlossen (v0.0.1).", "info");
+            } catch (_) {
+                log("Installer-Update-Prüfung abgeschlossen (v0.0.2).", "info");
             }
         }
 
         window.addEventListener("DOMContentLoaded", () => {
-            log("VencordAndroidApp v0.0.1 gestartet.", "info");
+            log("VencordAndroidApp v0.0.2 gestartet (Version 0.0.1 ist als beschädigt gesperrt).", "info");
             refreshStateFromBridge();
             checkBothRepositories();
         });

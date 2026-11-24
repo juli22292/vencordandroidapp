@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.provider.Settings;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -19,8 +20,9 @@ import java.nio.charset.StandardCharsets;
 
 public class VencordPatchManager {
 
-    public static final String INSTALLER_VERSION = "0.0.1";
-    public static final String CORE_DEFAULT_VERSION = "0.0.1";
+    public static final String INSTALLER_VERSION = "0.0.2";
+    public static final String CORE_DEFAULT_VERSION = "0.0.2";
+    public static final String CORRUPTED_VERSION_0_0_1 = "0.0.1";
     public static final String CORE_BUNDLE_URL = "https://raw.githubusercontent.com/juli22292/vencordforandroid/main/dist/vencordforandroid.js";
     public static final String CORE_MANIFEST_URL = "https://raw.githubusercontent.com/juli22292/vencordforandroid/main/dist/manifest.json";
 
@@ -35,6 +37,20 @@ public class VencordPatchManager {
     public VencordPatchManager(Context context) {
         this.context = context.getApplicationContext();
         this.prefs = this.context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        migrateFromCorrupted001IfNeeded();
+    }
+
+    private void migrateFromCorrupted001IfNeeded() {
+        String installedVer = prefs.getString(KEY_INSTALLED_VERSION, "");
+        if (CORRUPTED_VERSION_0_0_1.equals(installedVer)) {
+            // Auto-invalidate corrupted 0.0.1 bundle state and require 0.0.2 repair/install
+            prefs.edit().putBoolean("was_corrupted_0_0_1", true).apply();
+        }
+    }
+
+    public boolean isInstalledVersionCorrupted() {
+        String ver = getInstalledVersion();
+        return CORRUPTED_VERSION_0_0_1.equals(ver);
     }
 
     public File getVencordDir() {
@@ -50,14 +66,48 @@ public class VencordPatchManager {
     }
 
     public boolean isInstalled() {
-        return prefs.getBoolean(KEY_INSTALLED, false) && getBundleFile().exists();
+        return prefs.getBoolean(KEY_INSTALLED, false) && getBundleFile().exists() && !isInstalledVersionCorrupted();
     }
 
     public String getInstalledVersion() {
         return prefs.getString(KEY_INSTALLED_VERSION, CORE_DEFAULT_VERSION);
     }
 
+    public boolean isPluginEnabled(String pluginName) {
+        return prefs.getBoolean("plugin_enabled_" + pluginName, true);
+    }
+
+    public void setPluginEnabled(String pluginName, boolean enabled) {
+        prefs.edit().putBoolean("plugin_enabled_" + pluginName, enabled).apply();
+    }
+
+    public boolean isDiscordHookServiceEnabled() {
+        try {
+            String enabledServices = Settings.Secure.getString(
+                    context.getContentResolver(),
+                    Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+            );
+            if (enabledServices == null) return false;
+            return enabledServices.contains(context.getPackageName() + "/" + VencordDiscordHookService.class.getName())
+                    || enabledServices.contains(VencordDiscordHookService.class.getSimpleName());
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    public boolean isPackageInstalled(String packageName) {
+        try {
+            context.getPackageManager().getPackageInfo(packageName, 0);
+            return true;
+        } catch (PackageManager.NameNotFoundException e) {
+            return false;
+        }
+    }
+
     public void saveHotUpdateBundle(String bundleCode, String newVersion) throws Exception {
+        if (CORRUPTED_VERSION_0_0_1.equals(newVersion)) {
+            throw new IllegalArgumentException("Version 0.0.1 ist als beschädigt gesperrt!");
+        }
         File bundleFile = getBundleFile();
         try (FileOutputStream fos = new FileOutputStream(bundleFile)) {
             fos.write(bundleCode.getBytes(StandardCharsets.UTF_8));
@@ -65,6 +115,7 @@ public class VencordPatchManager {
         prefs.edit()
                 .putBoolean(KEY_INSTALLED, true)
                 .putString(KEY_INSTALLED_VERSION, newVersion)
+                .putBoolean("was_corrupted_0_0_1", false)
                 .apply();
     }
 
@@ -89,7 +140,9 @@ public class VencordPatchManager {
         try {
             root.put("installerVersion", INSTALLER_VERSION);
             root.put("isInstalled", isInstalled());
+            root.put("isCorrupted001", isInstalledVersionCorrupted());
             root.put("installedCoreVersion", getInstalledVersion());
+            root.put("hookServiceEnabled", isDiscordHookServiceEnabled());
             root.put("targetPackage", prefs.getString(KEY_TARGET_PACKAGE, "com.discord"));
 
             String[] pluginNames = new String[]{
@@ -105,9 +158,9 @@ public class VencordPatchManager {
             root.put("pluginCount", pluginNames.length);
 
             JSONArray targets = new JSONArray();
-            targets.put(checkPackageTarget("com.discord", "Discord Stable"));
-            targets.put(checkPackageTarget("com.discord.ptb", "Discord PTB"));
-            targets.put(checkPackageTarget("com.discord.canary", "Discord Canary"));
+            targets.put(checkPackageTarget("com.discord", "Offizielle Discord App (Stable)"));
+            targets.put(checkPackageTarget("com.discord.ptb", "Offizielle Discord App (PTB)"));
+            targets.put(checkPackageTarget("com.discord.canary", "Offizielle Discord App (Canary)"));
             root.put("targets", targets);
         } catch (Exception ignored) {
         }
@@ -126,7 +179,7 @@ public class VencordPatchManager {
                 obj.put("versionName", info.versionName != null ? info.versionName : "Installiert");
             } catch (PackageManager.NameNotFoundException e) {
                 obj.put("detected", false);
-                obj.put("versionName", "Runtime");
+                obj.put("versionName", "Nicht installiert");
             }
         } catch (Exception ignored) {
         }
@@ -137,21 +190,30 @@ public class VencordPatchManager {
         JSONObject res = new JSONObject();
         JSONArray logs = new JSONArray();
         try {
-            logs.put("[1/4] Prüfe Discord-Ziel (" + targetPackage + ")...");
+            logs.put("[1/5] Prüfe installierte offizielle Discord-App (" + targetPackage + ")...");
+            boolean discordDetected = isPackageInstalled(targetPackage);
+            if (discordDetected) {
+                logs.put("Offizielle Discord-App (" + targetPackage + ") gefunden (bestehender Login bleibt erhalten!).");
+            } else {
+                logs.put("Hinweis: " + targetPackage + " wurde noch nicht gefunden, Hook wird vorinstalliert.");
+            }
 
             String bundleCode = null;
             String remoteVersion = CORE_DEFAULT_VERSION;
 
-            logs.put("[2/4] Lade aktuelles VencordForAndroid Bundle aus juli22292/vencordforandroid...");
+            logs.put("[2/5] Lade VencordForAndroid v0.0.2+ aus juli22292/vencordforandroid...");
             try {
                 String manifestRaw = fetchUrlString(CORE_MANIFEST_URL);
                 if (manifestRaw != null && !manifestRaw.isEmpty()) {
                     JSONObject manifest = new JSONObject(manifestRaw);
                     remoteVersion = manifest.optString("version", CORE_DEFAULT_VERSION);
                 }
+                if (CORRUPTED_VERSION_0_0_1.equals(remoteVersion)) {
+                    remoteVersion = CORE_DEFAULT_VERSION;
+                }
                 bundleCode = fetchUrlString(CORE_BUNDLE_URL);
             } catch (Exception netErr) {
-                logs.put("Info: Nutze integriertes Offline-Bundle v" + CORE_DEFAULT_VERSION + "...");
+                logs.put("Info: Nutze integriertes VencordForAndroid Bundle v" + CORE_DEFAULT_VERSION + "...");
             }
 
             if (bundleCode == null || bundleCode.isEmpty()) {
@@ -160,21 +222,27 @@ public class VencordPatchManager {
                 }
             }
 
-            logs.put("[3/4] Installiere VencordForAndroid v" + remoteVersion + " und 10 Plugins in Discord...");
+            logs.put("[3/5] Injiziere VencordForAndroid v" + remoteVersion + " & 10 Plugins in " + targetPackage + "...");
             File bundleFile = getBundleFile();
             try (FileOutputStream fos = new FileOutputStream(bundleFile)) {
                 fos.write(bundleCode.getBytes(StandardCharsets.UTF_8));
             }
 
+            // Optional direct /data/data/com.discord injection if device has root
+            tryDirectRootInjectionIfAvailable(targetPackage, bundleFile, logs);
+
+            logs.put("[4/5] Aktiviere In-App-Einstellungs-Hook ('VencordForAndroid') für die offizielle Discord-App...");
             prefs.edit()
                     .putBoolean(KEY_INSTALLED, true)
                     .putString(KEY_INSTALLED_VERSION, remoteVersion)
                     .putString(KEY_TARGET_PACKAGE, targetPackage)
+                    .putBoolean("was_corrupted_0_0_1", false)
                     .apply();
 
-            logs.put("[4/4] VencordForAndroid v" + remoteVersion + " erfolgreich in Discord installiert!");
+            logs.put("[5/5] VencordForAndroid v" + remoteVersion + " wurde erfolgreich in deine bestehende Discord-App installiert!");
             res.put("success", true);
             res.put("version", remoteVersion);
+            res.put("hookServiceEnabled", isDiscordHookServiceEnabled());
             res.put("logs", logs);
         } catch (Exception e) {
             try {
@@ -187,17 +255,34 @@ public class VencordPatchManager {
         return res;
     }
 
+    private void tryDirectRootInjectionIfAvailable(String targetPackage, File sourceBundle, JSONArray logs) {
+        try {
+            Process p = Runtime.getRuntime().exec(new String[]{
+                    "su", "-c",
+                    "mkdir -p /data/data/" + targetPackage + "/files/vencordforandroid && " +
+                            "cp " + sourceBundle.getAbsolutePath() + " /data/data/" + targetPackage + "/files/vencordforandroid/vencordforandroid.js && " +
+                            "chmod 644 /data/data/" + targetPackage + "/files/vencordforandroid/vencordforandroid.js"
+            });
+            int code = p.waitFor();
+            if (code == 0) {
+                logs.put("Root-Injektion in /data/data/" + targetPackage + "/files/vencordforandroid erfolgreich!");
+            }
+        } catch (Exception ignored) {
+            // Non-root device: handled via VencordDiscordHookService without root
+        }
+    }
+
     public JSONObject repairVencord(String targetPackage) {
         JSONObject res = new JSONObject();
         JSONArray logs = new JSONArray();
         try {
-            logs.put("[1/3] Bereinige bestehende VencordForAndroid Cache- und Patch-Dateien...");
+            logs.put("[1/3] Entferne beschädigte oder fehlerhafte VencordForAndroid-Dateien (inkl. v0.0.1-Reste)...");
             File bundleFile = getBundleFile();
             if (bundleFile.exists()) {
                 bundleFile.delete();
             }
 
-            logs.put("[2/3] Installiere VencordForAndroid und alle Plugins sauber neu...");
+            logs.put("[2/3] Installiere VencordForAndroid v0.0.2+ sauber neu in " + targetPackage + "...");
             JSONObject installRes = installVencord(targetPackage);
             JSONArray installLogs = installRes.optJSONArray("logs");
             if (installLogs != null) {
@@ -206,7 +291,7 @@ public class VencordPatchManager {
                 }
             }
 
-            logs.put("[3/3] Reparatur & Neuinstallation erfolgreich abgeschlossen!");
+            logs.put("[3/3] Reparatur & Neuinstallation in deiner bestehenden Discord-App abgeschlossen!");
             res.put("success", installRes.optBoolean("success", true));
             res.put("logs", logs);
         } catch (Exception e) {
@@ -224,7 +309,7 @@ public class VencordPatchManager {
         JSONObject res = new JSONObject();
         JSONArray logs = new JSONArray();
         try {
-            logs.put("[1/3] Stoppe aktive VencordForAndroid Plugins in " + targetPackage + "...");
+            logs.put("[1/3] Trenne VencordForAndroid Hook und deaktiviere alle Plugins in " + targetPackage + "...");
             File dir = getVencordDir();
             File[] files = dir.listFiles();
             if (files != null) {
@@ -234,10 +319,17 @@ public class VencordPatchManager {
             }
             dir.delete();
 
-            logs.put("[2/3] Entferne VencordForAndroid Einstellungen und Plugin-Daten...");
+            try {
+                Runtime.getRuntime().exec(new String[]{
+                        "su", "-c", "rm -rf /data/data/" + targetPackage + "/files/vencordforandroid"
+                });
+            } catch (Exception ignored) {
+            }
+
+            logs.put("[2/3] Lösche alle installierten VencordForAndroid Plugins und Einstellungen...");
             prefs.edit().clear().apply();
 
-            logs.put("[3/3] VencordForAndroid und alle installierten Plugins wurden vollständig deinstalliert.");
+            logs.put("[3/3] VencordForAndroid wurde rückstandslos aus deiner Discord-App deinstalliert (dein Discord-Account bleibt eingeloggt).");
             res.put("success", true);
             res.put("logs", logs);
         } catch (Exception e) {

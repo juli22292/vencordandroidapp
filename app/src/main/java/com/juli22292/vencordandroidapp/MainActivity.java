@@ -7,12 +7,14 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.view.Window;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.Toast;
 
 public class MainActivity extends Activity {
 
@@ -48,6 +50,14 @@ public class MainActivity extends Activity {
         webView.loadUrl("file:///android_asset/installer_ui.html");
     }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (webView != null) {
+            webView.evaluateJavascript("if(typeof refreshStateFromBridge==='function'){refreshStateFromBridge();}", null);
+        }
+    }
+
     public class InstallerJsBridge {
 
         @JavascriptInterface
@@ -70,12 +80,60 @@ public class MainActivity extends Activity {
             return patchManager.uninstallVencord(targetPackage).toString();
         }
 
+        /**
+         * Launches the user's already-installed official Discord app (com.discord) directly
+         * without opening any WebView or asking for a new login.
+         */
         @JavascriptInterface
-        public void openDiscordWithVencord(String targetPackage) {
+        public void openOfficialDiscordApp(String targetPackage) {
             runOnUiThread(() -> {
-                Intent intent = new Intent(MainActivity.this, DiscordRuntimeActivity.class);
-                intent.putExtra("target_package", targetPackage);
+                try {
+                    Intent launchIntent = getPackageManager().getLaunchIntentForPackage(targetPackage);
+                    if (launchIntent != null) {
+                        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(launchIntent);
+                    } else {
+                        Toast.makeText(
+                                MainActivity.this,
+                                "Die offizielle Discord-App (" + targetPackage + ") ist auf diesem Handy noch nicht installiert.",
+                                Toast.LENGTH_LONG
+                        ).show();
+                    }
+                } catch (Exception e) {
+                    Toast.makeText(MainActivity.this, "Fehler beim Starten von Discord: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                }
+            });
+        }
+
+        /**
+         * Opens the VencordForAndroid Settings ("Plugins", "Einstellungen", "Updater") modal directly
+         */
+        @JavascriptInterface
+        public void openVencordSettingsSheet(String initialTab) {
+            runOnUiThread(() -> {
+                Intent intent = new Intent(MainActivity.this, VencordSettingsOverlayActivity.class);
+                intent.putExtra("initial_tab", initialTab != null ? initialTab : "plugins");
                 startActivity(intent);
+            });
+        }
+
+        /**
+         * Opens Android Accessibility Settings so the user can toggle on "VencordForAndroid Discord Injector"
+         * to display the VencordForAndroid settings section directly inside the official Discord app.
+         */
+        @JavascriptInterface
+        public void openDiscordHookPermissionSettings() {
+            runOnUiThread(() -> {
+                try {
+                    Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+                    startActivity(intent);
+                    Toast.makeText(
+                            MainActivity.this,
+                            "Aktiviere 'VencordForAndroid Discord Injector', damit Vencord direkt in deiner Discord-App erscheint.",
+                            Toast.LENGTH_LONG
+                    ).show();
+                } catch (Exception ignored) {
+                }
             });
         }
 

@@ -5,12 +5,12 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <queries>
         <package android:name="com.discord" />
         <package android:name="com.discord.ptb" />
         <package android:name="com.discord.canary" />
-        <package android:name="com.aliucord" />
     </queries>
 
     <application
@@ -21,6 +21,20 @@
         android:supportsRtl="true"
         android:usesCleartextTraffic="false"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+
+        <!-- Xposed / LSPosed Metadata for direct native hook into official com.discord when available -->
+        <meta-data
+            android:name="xposedmodule"
+            android:value="true" />
+        <meta-data
+            android:name="xposeddescription"
+            android:value="VencordForAndroid Direct Injector for official Discord Android App" />
+        <meta-data
+            android:name="xposedminversion"
+            android:value="82" />
+        <meta-data
+            android:name="xposedscope"
+            android:value="com.discord;com.discord.ptb;com.discord.canary" />
 
         <activity
             android:name=".MainActivity"
@@ -33,12 +47,30 @@
             </intent-filter>
         </activity>
 
+        <!-- In-App VencordForAndroid Settings Modal rendered directly inside/over the official Discord App -->
         <activity
-            android:name=".DiscordRuntimeActivity"
-            android:exported="false"
-            android:label="Discord (VencordForAndroid)"
+            android:name=".VencordSettingsOverlayActivity"
+            android:exported="true"
+            android:label="VencordForAndroid"
+            android:excludeFromRecents="true"
+            android:taskAffinity="com.discord"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:windowSoftInputMode="adjustResize" />
+
+        <!-- Direct Non-Root Hook Service into the existing installed Official Discord App -->
+        <service
+            android:name=".VencordDiscordHookService"
+            android:exported="true"
+            android:label="VencordForAndroid Discord Injector"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/vencord_accessibility_service" />
+        </service>
 
     </application>
 
