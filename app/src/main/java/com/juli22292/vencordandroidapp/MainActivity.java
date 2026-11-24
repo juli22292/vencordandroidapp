@@ -7,7 +7,6 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.provider.Settings;
 import android.view.Window;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
@@ -16,6 +15,10 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
 
+/**
+ * VencordAndroidApp MainActivity (v0.0.4)
+ * Renders the Vencord/Installer GUI (gui.go) for Android.
+ */
 public class MainActivity extends Activity {
 
     private WebView webView;
@@ -80,10 +83,6 @@ public class MainActivity extends Activity {
             return patchManager.uninstallVencord(targetPackage).toString();
         }
 
-        /**
-         * Launches the user's already-installed official Discord app (com.discord) directly
-         * without opening any WebView or asking for a new login.
-         */
         @JavascriptInterface
         public void openOfficialDiscordApp(String targetPackage) {
             runOnUiThread(() -> {
@@ -95,44 +94,12 @@ public class MainActivity extends Activity {
                     } else {
                         Toast.makeText(
                                 MainActivity.this,
-                                "Die offizielle Discord-App (" + targetPackage + ") ist auf diesem Handy noch nicht installiert.",
+                                "Discord (" + targetPackage + ") is not installed on this device.",
                                 Toast.LENGTH_LONG
                         ).show();
                     }
                 } catch (Exception e) {
-                    Toast.makeText(MainActivity.this, "Fehler beim Starten von Discord: " + e.getMessage(), Toast.LENGTH_LONG).show();
-                }
-            });
-        }
-
-        /**
-         * Opens the VencordForAndroid Settings ("Plugins", "Einstellungen", "Updater") modal directly
-         */
-        @JavascriptInterface
-        public void openVencordSettingsSheet(String initialTab) {
-            runOnUiThread(() -> {
-                Intent intent = new Intent(MainActivity.this, VencordSettingsOverlayActivity.class);
-                intent.putExtra("initial_tab", initialTab != null ? initialTab : "plugins");
-                startActivity(intent);
-            });
-        }
-
-        /**
-         * Opens Android Accessibility Settings so the user can toggle on "VencordForAndroid Discord Injector"
-         * to display the VencordForAndroid settings section directly inside the official Discord app.
-         */
-        @JavascriptInterface
-        public void openDiscordHookPermissionSettings() {
-            runOnUiThread(() -> {
-                try {
-                    Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
-                    startActivity(intent);
-                    Toast.makeText(
-                            MainActivity.this,
-                            "Aktiviere 'VencordForAndroid Discord Injector', damit Vencord direkt in deiner Discord-App erscheint.",
-                            Toast.LENGTH_LONG
-                    ).show();
-                } catch (Exception ignored) {
+                    Toast.makeText(MainActivity.this, "Failed to launch Discord: " + e.getMessage(), Toast.LENGTH_LONG).show();
                 }
             });
         }
