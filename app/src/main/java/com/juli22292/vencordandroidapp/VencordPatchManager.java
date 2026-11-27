@@ -8,8 +8,11 @@ import android.content.pm.PackageManager;
 import android.content.pm.Signature;
 import android.content.pm.SigningInfo;
 
+import com.android.apksig.ApkSigner;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.lsposed.patch.ApkPatcher;
 import org.lsposed.patch.LSPatch;
 import org.lsposed.patch.util.Logger;
 
@@ -20,6 +23,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -223,20 +227,19 @@ public class VencordPatchManager {
                 cleanDir(extractedDir);
                 cleanDir(patchedDir);
 
-                List<String> inputApkPaths = new ArrayList<>();
+                List<File> splitApks = new ArrayList<>();
                 if (appInfo.publicSourceDir == null) throw new IOException("Die Discord-Basis-APK fehlt.");
                 File baseDst = new File(extractedDir, "base.apk");
                 copyBaseApk(new File(appInfo.publicSourceDir), baseDst);
-                inputApkPaths.add(baseDst.getAbsolutePath());
                 if (appInfo.splitPublicSourceDirs != null) {
                     for (String splitPath : appInfo.splitPublicSourceDirs) {
                         File splitSrc = new File(splitPath);
                         File splitDst = new File(extractedDir, splitSrc.getName());
                         copyFile(splitSrc, splitDst);
-                        inputApkPaths.add(splitDst.getAbsolutePath());
+                        splitApks.add(splitDst);
                     }
                 }
-                callback.onLog("[2/5] " + inputApkPaths.size() + " APK-Datei(en) deiner installierten Discord-App extrahiert.", "ok");
+                callback.onLog("[2/5] " + (1 + splitApks.size()) + " APK-Datei(en) deiner installierten Discord-App extrahiert.", "ok");
 
                 // Step 2: Prepare embedded VencordForAndroid Xposed Module APK
                 File moduleApk = new File(context.getFilesDir(), "vencord_xposed_module.apk");
@@ -254,7 +257,8 @@ public class VencordPatchManager {
                 callback.onLog("[3/5] Patche " + targetPackage + " mit VencordForAndroid v" + BuildConfig.CORE_VERSION + " …", "info");
 
                 // Step 4: Run real LSPatch binary patcher on-device
-                List<String> lspArgs = new ArrayList<>(inputApkPaths);
+                List<String> lspArgs = new ArrayList<>();
+                lspArgs.add(baseDst.getAbsolutePath());
                 lspArgs.add("-o");
                 lspArgs.add(patchedDir.getAbsolutePath());
                 lspArgs.add("-l");
@@ -285,11 +289,23 @@ public class VencordPatchManager {
                     }
                 };
 
-                new LSPatch(lspLogger, lspArgs.toArray(new String[0])).doCommandLine();
+                new ApkPatcher(lspLogger, new LSPatch(lspArgs.toArray(new String[0])).toSpec()).patch();
 
+                if (!splitApks.isEmpty()) {
+                    ApkSigner.SignerConfig signer = SignerHelper.loadApkSigner(keystoreFile);
+                    for (File split : splitApks) {
+                        new ApkSigner.Builder(Collections.singletonList(signer))
+                                .setInputApk(split)
+                                .setOutputApk(new File(patchedDir, split.getName()))
+                                .setMinSdkVersion(28)
+                                .setV4SigningEnabled(false)
+                                .build()
+                                .sign();
+                    }
+                }
                 File[] outApks = listPatchedApks();
-                if (outApks.length != inputApkPaths.size()) {
-                    throw new IOException("LSPatch hat nicht alle APK-Dateien erzeugt.");
+                if (outApks.length != 1 + splitApks.size()) {
+                    throw new IOException("Die APK-Dateien konnten nicht vollständig vorbereitet werden.");
                 }
                 boolean moduleIncluded = false;
                 for (File apk : outApks) {

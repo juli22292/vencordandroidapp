@@ -3,6 +3,16 @@ plugins {
 }
 
 def coreVersion = providers.gradleProperty('vencordCoreVersion').get()
+def lspatchLibrary = file('libs/lspatch-v1.2-487-release.jar')
+def lspatchAssets = layout.buildDirectory.dir('generated/assets/lspatch')
+def prepareLspatchAssets = tasks.register('prepareLspatchAssets', Sync) {
+    from(zipTree(lspatchLibrary)) {
+        include 'assets/lspatch/so/**/*.so'
+        eachFile { path = path.substring('assets/'.length()) }
+        includeEmptyDirs = false
+    }
+    into(lspatchAssets)
+}
 def moduleApk = project(':xposed-module').layout.buildDirectory.file('outputs/apk/release/xposed-module-release.apk')
 def embeddedAssets = layout.buildDirectory.dir('generated/assets/embedded-module')
 def embedXposedModule = tasks.register('embedXposedModule', Sync) {
@@ -25,8 +35,8 @@ android {
         applicationId "com.juli22292.vencordandroidapp"
         minSdk 28
         targetSdk 34
-        versionCode 9
-        versionName "0.0.9"
+        versionCode 10
+        versionName "0.1.0"
         buildConfigField 'String', 'CORE_VERSION', "\"$coreVersion\""
     }
 
@@ -35,6 +45,7 @@ android {
     }
 
     sourceSets.main.assets.srcDir(embeddedAssets)
+    sourceSets.main.assets.srcDir(lspatchAssets)
 
     buildTypes {
         release {
@@ -69,9 +80,9 @@ android {
 }
 
 tasks.named('preBuild') {
-    dependsOn embedXposedModule
+    dependsOn embedXposedModule, prepareLspatchAssets
 }
 
 dependencies {
-    implementation files('libs/lspatch.aar')
+    implementation files(lspatchLibrary)
 }

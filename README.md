@@ -13,6 +13,6 @@
 
 ## Download
 
-Version `0.0.9` von **`vencordandroidapp.apk`** enthält VencordForAndroid `0.1.0`. [APK herunterladen](https://github.com/juli22292/vencordandroidapp/releases/tag/0.0.9)
+Version `0.1.0` von **`vencordandroidapp.apk`** enthält VencordForAndroid `0.1.1` für die nativen Discord-Einstellungen und verwendet LSPatch 1.2 zum Verpacken der APKs. [APK herunterladen](https://github.com/juli22292/vencordandroidapp/releases/tag/0.1.0) [LSPatch 1.2 und Quellcode](https://github.com/JingMatrix/LSPatch/releases/tag/v1.2)
 
 Beim Wechsel von Installer `0.0.8` zu `0.0.9` erfordert Android wegen des geänderten APK-Signierzertifikats eine Neuinstallation der Installer-App. Der Schlüssel zum Signieren gepatchter Discord-APKs liegt in den App-Daten des Installers. Android kann deshalb bei der Reparatur auch für Discord eine bestätigte Neuinstallation verlangen.

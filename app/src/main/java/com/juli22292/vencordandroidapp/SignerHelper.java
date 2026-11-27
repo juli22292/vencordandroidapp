@@ -3,6 +3,8 @@ package com.juli22292.vencordandroidapp;
 import android.content.Context;
 import android.util.AtomicFile;
 
+import com.android.apksig.ApkSigner;
+
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
 import org.bouncycastle.cert.X509v3CertificateBuilder;
@@ -11,14 +13,17 @@ import org.bouncycastle.operator.ContentSigner;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.math.BigInteger;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.KeyStore;
+import java.security.PrivateKey;
 import java.security.SecureRandom;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
+import java.util.Collections;
 import java.util.Date;
 import java.util.Locale;
 
@@ -30,6 +35,19 @@ public class SignerHelper {
 
     public static final String KEYSTORE_PASSWORD = "password";
     public static final String KEY_ALIAS = "alias";
+
+    public static ApkSigner.SignerConfig loadApkSigner(File keystoreFile) throws Exception {
+        char[] password = KEYSTORE_PASSWORD.toCharArray();
+        KeyStore keystore = KeyStore.getInstance(KeyStore.getDefaultType());
+        try (FileInputStream input = new FileInputStream(keystoreFile)) {
+            keystore.load(input, password);
+        }
+        return new ApkSigner.SignerConfig.Builder(
+                KEY_ALIAS,
+                (PrivateKey) keystore.getKey(KEY_ALIAS, password),
+                Collections.singletonList((X509Certificate) keystore.getCertificate(KEY_ALIAS))
+        ).build();
+    }
 
     public static File getOrCreateKeystore(Context context) throws Exception {
         File ksFile = new File(context.getFilesDir(), "ks.keystore");
