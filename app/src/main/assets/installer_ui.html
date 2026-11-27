@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>Vencord Installer v0.0.8</title>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src https://api.github.com https://raw.githubusercontent.com">
+    <title>Vencord Installer</title>
     <style>
         :root {
             --bg-window: #1e1f22;
@@ -234,16 +235,16 @@
 
         <div class="header-center">
             <h1 class="header-title">Vencord Installer</h1>
-            <div class="header-sub">VencordAndroidApp v0.0.8 • Android Discord APK Patcher</div>
+            <div class="header-sub">VencordAndroidApp</div>
         </div>
 
         <!-- APK Self-Update Banner -->
         <div class="banner" id="installer-update-banner">
             <div>
-                <div style="font-weight:700; font-size:13px;">Installer Update verfügbar!</div>
+                <div style="font-weight:700; font-size:13px;" id="installer-update-title">Installer-Update verfügbar</div>
                 <div style="font-size:12px; color:var(--text-secondary);" id="installer-update-text">Eine neue Version von vencordandroidapp.apk steht bereit.</div>
             </div>
-            <button class="btn btn-blue" style="height:36px; padding:0 12px; font-size:12px;" onclick="downloadInstallerApkUpdate()">Update APK</button>
+            <button class="btn btn-blue" style="height:36px; padding:0 12px; font-size:12px;" onclick="downloadInstallerApkUpdate()">GitHub-Releases</button>
         </div>
 
         <!-- Permission Banner for Android PackageInstaller -->
@@ -259,15 +260,19 @@
         <div class="info-panel">
             <div class="info-line">
                 <span class="info-key">Installer APK (vencordandroidapp):</span>
-                <span class="info-val" id="installer-ver">v0.0.8</span>
+                <span class="info-val" id="installer-ver">Wird geladen …</span>
             </div>
             <div class="info-line">
                 <span class="info-key">VencordForAndroid Status:</span>
                 <span class="info-val" id="installed-core-ver">Nicht gepatcht</span>
             </div>
             <div class="info-line">
-                <span class="info-key">Neuestes Modul (vencordforandroid):</span>
-                <span class="info-val" id="remote-core-ver">v0.0.8 (0651966)</span>
+                <span class="info-key">Mitgeliefertes Modul:</span>
+                <span class="info-val" id="embedded-core-ver">Wird geladen …</span>
+            </div>
+            <div class="info-line">
+                <span class="info-key">Modul auf GitHub:</span>
+                <span class="info-val" id="remote-core-ver">Ausstehend</span>
             </div>
             <div class="info-line">
                 <span class="info-key">Patch-Engine:</span>
@@ -295,7 +300,7 @@
         </div>
 
         <div style="display:flex; gap:10px;">
-            <button class="btn btn-gray" style="flex:1;" onclick="checkBothRepositories()">
+            <button class="btn btn-gray" style="flex:1;" id="btn-check-updates" onclick="checkBothRepositories()">
                 Updates prüfen
             </button>
             <button class="btn btn-blue" id="btn-open-discord" style="flex:1;" onclick="openOfficialDiscord()">
@@ -314,7 +319,9 @@
         const INSTALLER_REPO = "juli22292/vencordandroidapp";
         const CORE_REPO = "juli22292/vencordforandroid";
         let selectedPackage = "com.discord";
-        let latestInstallerApkUrl = "https://github.com/juli22292/vencordandroidapp/releases/latest";
+        const installerReleasesUrl = `https://github.com/${INSTALLER_REPO}/releases/latest`;
+        let systemState = null;
+        let busyTimer = null;
 
         function appendPatchLog(msg, level = "") {
             const box = document.getElementById("console-log");
@@ -326,75 +333,81 @@
             box.scrollTop = box.scrollHeight;
         }
 
-        function setButtonsBusy(busy) {
-            document.getElementById("btn-install").disabled = busy;
-            document.getElementById("btn-repair").disabled = busy;
-            document.getElementById("btn-uninstall").disabled = busy;
+        function refreshButtons(busy) {
+            const selected = systemState?.targets?.find((target) => target.packageName === selectedPackage);
+            document.getElementById("btn-install").disabled = busy || !selected?.detected || selected.actuallyPatched;
+            document.getElementById("btn-repair").disabled = busy || !selected?.actuallyPatched;
+            document.getElementById("btn-uninstall").disabled = busy || !selected?.actuallyPatched;
+            document.getElementById("btn-open-discord").disabled = busy || !selected?.detected;
         }
 
-        function onPatchFinished(success) {
-            setButtonsBusy(false);
+        function onPatchFinished() {
             refreshStateFromBridge();
         }
 
         function refreshStateFromBridge() {
-            if (!window.AndroidInstaller) return;
+            if (!window.AndroidInstaller) {
+                refreshButtons(false);
+                return;
+            }
             try {
                 const state = JSON.parse(window.AndroidInstaller.getSystemStatusJson());
+                systemState = state;
                 document.getElementById("installer-ver").textContent = "v" + state.installerVersion;
+                document.getElementById("embedded-core-ver").textContent = "v" + state.embeddedCoreVersion;
 
                 const permBanner = document.getElementById("install-perm-banner");
-                if (state.canRequestPackageInstalls) {
-                    permBanner.classList.remove("visible");
-                } else {
-                    permBanner.classList.add("visible");
+                permBanner.classList.toggle("visible", !state.canRequestPackageInstalls);
+                renderTargets(state.targets || []);
+                clearTimeout(busyTimer);
+                if (state.operationInProgress) {
+                    busyTimer = setTimeout(refreshStateFromBridge, 1000);
                 }
-
-                const verEl = document.getElementById("installed-core-ver");
-                if (state.isPatched) {
-                    verEl.textContent = `Gepatcht (v${state.patchedVersion})`;
-                    verEl.style.color = "#23a55a";
-                } else {
-                    verEl.textContent = "Nicht gepatcht";
-                    verEl.style.color = "#f0b232";
-                }
-
-                renderTargets(state.targets || [], state.isPatched, state.patchedPackage, state.patchedVersion);
             } catch (e) {
+                refreshButtons(true);
                 appendPatchLog("Status-Fehler: " + e.message, "err");
             }
         }
 
-        function renderTargets(targets, isPatched, patchedPkg, patchedVer) {
+        function renderTargets(targets) {
             const list = document.getElementById("discord-targets-list");
-            list.innerHTML = "";
+            list.textContent = "";
+
+            const selected = targets.find((target) => target.packageName === selectedPackage);
+            const status = document.getElementById("installed-core-ver");
+            status.textContent = selected?.actuallyPatched ? patchedLabel(selected) : "Nicht installiert";
+            status.style.color = selected?.actuallyPatched ? "#23a55a" : "#f0b232";
+            refreshButtons(systemState.operationInProgress);
 
             for (const t of targets) {
                 const row = document.createElement("div");
                 row.className = "install-item " + (t.packageName === selectedPackage ? "selected" : "");
                 row.onclick = () => {
                     selectedPackage = t.packageName;
-                    renderTargets(targets, isPatched, patchedPkg, patchedVer);
+                    renderTargets(targets);
                 };
-
-                const isPatchedHere = Boolean(t.actuallyPatched) || (isPatched && t.packageName === patchedPkg && t.detected);
-                const badgeClass = isPatchedHere ? "patched" : "";
-                const badgeText = isPatchedHere
-                    ? `GEPATCHT (v${patchedVer})`
-                    : (t.detected ? `${t.versionName}` : "Nicht installiert");
 
                 row.innerHTML = `
                     <div class="radio-left">
                         <div class="radio-circle"></div>
                         <div>
-                            <div class="branch-title">${t.label}</div>
-                            <div class="branch-path">${t.packageName} ${t.detected ? `• ${t.apkCount} APK(s)` : ""}</div>
+                            <div class="branch-title"></div>
+                            <div class="branch-path"></div>
                         </div>
                     </div>
-                    <span class="badge-status ${badgeClass}">${badgeText}</span>
+                    <span class="badge-status"></span>
                 `;
+                row.querySelector(".branch-title").textContent = t.label;
+                row.querySelector(".branch-path").textContent = t.packageName + (t.detected ? ` • ${t.apkCount} APK(s)` : "");
+                const badge = row.querySelector(".badge-status");
+                badge.classList.toggle("patched", Boolean(t.actuallyPatched));
+                badge.textContent = t.actuallyPatched ? patchedLabel(t) : t.versionName;
                 list.appendChild(row);
             }
+        }
+
+        function patchedLabel(target) {
+            return target.patchedVersion ? `Gepatcht (v${target.patchedVersion})` : "Gepatcht";
         }
 
         function grantInstallPermission() {
@@ -402,24 +415,24 @@
         }
 
         function performInstall() {
-            setButtonsBusy(true);
-            appendPatchLog(`Starte direktes Patchen von ${selectedPackage} (dauert ca. 10–20 Sekunden)...`, "info");
             if (window.AndroidInstaller) {
+                refreshButtons(true);
+                appendPatchLog(`Bereite die Installation für ${selectedPackage} vor …`, "info");
                 window.AndroidInstaller.installVencord(selectedPackage);
             }
         }
 
         function performRepair() {
-            setButtonsBusy(true);
-            appendPatchLog(`Starte Reinstall / Repair für ${selectedPackage}...`, "warn");
             if (window.AndroidInstaller) {
+                refreshButtons(true);
+                appendPatchLog(`Bereite die Reparatur für ${selectedPackage} vor …`, "warn");
                 window.AndroidInstaller.repairVencord(selectedPackage);
             }
         }
 
         function performUninstall() {
-            setButtonsBusy(true);
             if (window.AndroidInstaller) {
+                refreshButtons(true);
                 window.AndroidInstaller.uninstallVencord(selectedPackage);
             }
         }
@@ -432,7 +445,7 @@
 
         function downloadInstallerApkUpdate() {
             if (window.AndroidInstaller) {
-                window.AndroidInstaller.openExternalUrl(latestInstallerApkUrl);
+                window.AndroidInstaller.openExternalUrl(installerReleasesUrl);
             }
         }
 
@@ -450,45 +463,62 @@
             return 0;
         }
 
+        async function fetchMetadata(url) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 8000);
+            try {
+                const response = await fetch(url, { cache: "no-store", signal: controller.signal });
+                if (!response.ok) throw new Error("HTTP " + response.status);
+                return await response.json();
+            } finally {
+                clearTimeout(timer);
+            }
+        }
+
         async function checkBothRepositories() {
-            appendPatchLog("Prüfe GitHub-Repositories auf Updates...", "info");
-            const currentVer = window.AndroidInstaller
-                ? JSON.parse(window.AndroidInstaller.getSystemStatusJson()).installerVersion
-                : "0.0.8";
-
+            const button = document.getElementById("btn-check-updates");
+            if (button.disabled) return;
+            button.disabled = true;
+            appendPatchLog("Prüfe GitHub-Repositories auf Updates …", "info");
+            const coreVersion = document.getElementById("remote-core-ver");
+            const title = document.getElementById("installer-update-title");
+            const banner = document.getElementById("installer-update-banner");
+            const message = document.getElementById("installer-update-text");
             try {
-                const manifestRes = await fetch(`https://raw.githubusercontent.com/${CORE_REPO}/main/dist/manifest.json`, { cache: "no-store" });
-                if (manifestRes.ok) {
-                    const manifest = await manifestRes.json();
-                    const remoteCoreVer = (manifest.version || "0.0.8").replace(/^v/i, "");
-                    const hash = (manifest.sha256 || "0651966").slice(0, 7);
-                    document.getElementById("remote-core-ver").textContent = `v${remoteCoreVer} (${hash})`;
-                    appendPatchLog(`VencordForAndroid (${CORE_REPO}): Neueste Version v${remoteCoreVer} (${hash})`, "ok");
+                const [core, installer] = await Promise.allSettled([
+                    fetchMetadata(`https://raw.githubusercontent.com/${CORE_REPO}/main/dist/manifest.json`),
+                    fetchMetadata(`https://api.github.com/repos/${INSTALLER_REPO}/releases/latest`)
+                ]);
+                if (typeof core.value?.version === "string" && /^\d+\.\d+\.\d+$/.test(core.value.version)) {
+                    coreVersion.textContent = "v" + core.value.version;
+                } else {
+                    coreVersion.textContent = "Nicht abrufbar";
+                    appendPatchLog("Modulversion auf GitHub konnte nicht abgerufen werden.", "warn");
                 }
-            } catch (_) {}
 
-            try {
-                const appRes = await fetch(`https://api.github.com/repos/${INSTALLER_REPO}/releases/latest`);
-                if (appRes.ok) {
-                    const data = await appRes.json();
-                    const remoteVer = (data.tag_name || "0.0.8").replace(/^v/i, "");
-                    const apkAsset = (data.assets || []).find(a => a.name.endsWith(".apk"));
-                    if (apkAsset) latestInstallerApkUrl = apkAsset.browser_download_url;
-
-                    if (compareSemver(currentVer, remoteVer) > 0) {
-                        document.getElementById("installer-update-text").textContent =
-                            `Version v${remoteVer} von vencordandroidapp.apk ist verfügbar (installiert: v${currentVer}).`;
-                        document.getElementById("installer-update-banner").classList.add("visible");
-                        appendPatchLog(`Neues Installer-APK-Update verfügbar: v${remoteVer}`, "warn");
-                    } else {
-                        appendPatchLog(`VencordAndroidApp (${INSTALLER_REPO}): v${currentVer} ist aktuell.`, "ok");
-                    }
+                const currentVer = systemState?.installerVersion;
+                const remoteVer = typeof installer.value?.tag_name === "string" ? installer.value.tag_name.replace(/^v/i, "") : "";
+                if (!currentVer || !/^\d+\.\d+\.\d+$/.test(remoteVer)) {
+                    title.textContent = "Installer-Updates auf GitHub";
+                    message.textContent = installer.reason?.message === "HTTP 404"
+                        ? "Melde dich im Browser bei GitHub an, um die privaten Releases zu öffnen."
+                        : "Die automatische Prüfung ist fehlgeschlagen. Öffne die Releases im Browser.";
+                    banner.classList.add("visible");
+                } else if (compareSemver(currentVer, remoteVer) > 0) {
+                    title.textContent = "Installer-Update verfügbar";
+                    message.textContent = `Version v${remoteVer} ist verfügbar (installiert v${currentVer}).`;
+                    banner.classList.add("visible");
+                    appendPatchLog(`Neues Installer-Update verfügbar (v${remoteVer}).`, "warn");
+                } else {
+                    banner.classList.remove("visible");
+                    appendPatchLog(`VencordAndroidApp v${currentVer} ist aktuell.`, "ok");
                 }
-            } catch (_) {}
+            } finally {
+                button.disabled = false;
+            }
         }
 
         window.addEventListener("DOMContentLoaded", () => {
-            appendPatchLog("Vencord Installer v0.0.8 (LSPatch-Engine) bereit.", "info");
             refreshStateFromBridge();
             checkBothRepositories();
         });

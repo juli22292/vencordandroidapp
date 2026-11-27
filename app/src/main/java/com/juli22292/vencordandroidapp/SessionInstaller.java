@@ -22,43 +22,49 @@ public class SessionInstaller {
     public static final String ACTION_UNINSTALL = "com.juli22292.vencordandroidapp.ACTION_UNINSTALL";
 
     @SuppressLint("UnspecifiedImmutableFlag")
-    public static void installApks(Context context, String targetPackage, List<File> apks) throws Exception {
+    public static void installApks(Context context, String targetPackage, List<File> apks, boolean allowReplace) throws Exception {
+        if (apks.isEmpty()) throw new IllegalArgumentException("Keine APK-Dateien zur Installation vorhanden.");
         PackageManager pm = context.getPackageManager();
         PackageInstaller packageInstaller = pm.getPackageInstaller();
 
         PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(
                 PackageInstaller.SessionParams.MODE_FULL_INSTALL
         );
+        params.setAppPackageName(targetPackage);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             params.setInstallScenario(PackageManager.INSTALL_SCENARIO_FAST);
         }
 
         int sessionId = packageInstaller.createSession(params);
-        PackageInstaller.Session session = packageInstaller.openSession(sessionId);
-
-        byte[] buffer = new byte[65536];
-        for (File apk : apks) {
-            try (FileInputStream fis = new FileInputStream(apk);
-                 OutputStream out = session.openWrite(apk.getName(), 0, apk.length())) {
-                int read;
-                while ((read = fis.read(buffer)) != -1) {
-                    out.write(buffer, 0, read);
+        boolean committed = false;
+        try (PackageInstaller.Session session = packageInstaller.openSession(sessionId)) {
+            byte[] buffer = new byte[65536];
+            for (File apk : apks) {
+                try (FileInputStream fis = new FileInputStream(apk);
+                     OutputStream out = session.openWrite(apk.getName(), 0, apk.length())) {
+                    int read;
+                    while ((read = fis.read(buffer)) != -1) {
+                        out.write(buffer, 0, read);
+                    }
+                    session.fsync(out);
                 }
-                session.fsync(out);
             }
+
+            Intent callbackIntent = new Intent(context, InstallService.class);
+            callbackIntent.setAction(ACTION_INSTALL);
+            callbackIntent.putExtra("target_package", targetPackage);
+            callbackIntent.putExtra("allow_replace", allowReplace);
+
+            int flags = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+                    ? PendingIntent.FLAG_MUTABLE | PendingIntent.FLAG_UPDATE_CURRENT
+                    : PendingIntent.FLAG_UPDATE_CURRENT;
+
+            PendingIntent pendingIntent = PendingIntent.getService(context, sessionId, callbackIntent, flags);
+            session.commit(pendingIntent.getIntentSender());
+            committed = true;
+        } finally {
+            if (!committed) packageInstaller.abandonSession(sessionId);
         }
-
-        Intent callbackIntent = new Intent(context, InstallService.class);
-        callbackIntent.setAction(ACTION_INSTALL);
-        callbackIntent.putExtra("target_package", targetPackage);
-
-        int flags = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-                ? PendingIntent.FLAG_MUTABLE | PendingIntent.FLAG_UPDATE_CURRENT
-                : PendingIntent.FLAG_UPDATE_CURRENT;
-
-        PendingIntent pendingIntent = PendingIntent.getService(context, sessionId, callbackIntent, flags);
-        session.commit(pendingIntent.getIntentSender());
-        session.close();
     }
 
     @SuppressLint("UnspecifiedImmutableFlag")
@@ -74,7 +80,7 @@ public class SessionInstaller {
                 ? PendingIntent.FLAG_MUTABLE | PendingIntent.FLAG_UPDATE_CURRENT
                 : PendingIntent.FLAG_UPDATE_CURRENT;
 
-        PendingIntent pendingIntent = PendingIntent.getService(context, 4242, callbackIntent, flags);
+        PendingIntent pendingIntent = PendingIntent.getService(context, packageName.hashCode(), callbackIntent, flags);
         packageInstaller.uninstall(packageName, pendingIntent.getIntentSender());
     }
 }

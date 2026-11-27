@@ -7,9 +7,12 @@
   - **Install:** Installiert `VencordForAndroid` und alle Plugins aus [`juli22292/vencordforandroid`](https://github.com/juli22292/vencordforandroid) in Discord.
   - **Reinstall / Repair:** Installiert `VencordForAndroid` sauber neu, falls ein Fehler auftritt.
   - **Uninstall:** Entfernt `VencordForAndroid` inklusive aller installierten Plugins wieder rückstandslos.
-- **Getrennte Update-Systeme:**
-  - **Installer-App (`VencordAndroidApp`):** Bezieht APK-Updates über [`juli22292/vencordandroidapp`](https://github.com/juli22292/vencordandroidapp).
-  - **In-App-Mod & Plugins (`VencordForAndroid`):** Bezieht Updates direkt über den In-App-Updater in den Discord-Einstellungen aus [`juli22292/vencordforandroid`](https://github.com/juli22292/vencordforandroid).
+- **Updates:**
+  - **Installer-App (`VencordAndroidApp`):** APK-Updates stehen auf GitHub bereit. Bei einem privaten Repository ist eine GitHub-Anmeldung im Browser erforderlich. [Installer-Releases](https://github.com/juli22292/vencordandroidapp/releases)
+  - **In-App-Mod & Plugins (`VencordForAndroid`):** Der Installer enthält das Core-Bundle und verwendet es auch offline. Über „Reinstall / Repair“ lässt sich das mitgelieferte Bundle in einer bereits gepatchten Installation aktualisieren.
 
 ## Download
-Die aktuelle **`vencordandroidapp.apk`** (Version `0.0.1`) befindet sich direkt unter [**Releases**](https://github.com/juli22292/vencordandroidapp/releases).
+
+Version `0.0.9` von **`vencordandroidapp.apk`** enthält VencordForAndroid `0.1.0`. [APK herunterladen](https://github.com/juli22292/vencordandroidapp/releases/tag/0.0.9)
+
+Beim Wechsel von Installer `0.0.8` zu `0.0.9` erfordert Android wegen des geänderten APK-Signierzertifikats eine Neuinstallation der Installer-App. Der Schlüssel zum Signieren gepatchter Discord-APKs liegt in den App-Daten des Installers. Android kann deshalb bei der Reparatur auch für Discord eine bestätigte Neuinstallation verlangen.

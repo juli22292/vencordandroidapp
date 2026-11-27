@@ -5,12 +5,12 @@ import android.app.Activity;
 import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.view.Window;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -19,12 +19,13 @@ import android.widget.Toast;
 import org.json.JSONObject;
 
 /**
- * VencordAndroidApp MainActivity (v0.0.7)
+ * VencordAndroidApp MainActivity
  * Pure Android Installer GUI that patches the user's already installed official Discord app (com.discord)
  * directly on-device via LSPatch + PackageInstaller.
  */
 public class MainActivity extends Activity {
 
+    private static final String INSTALLER_UI = "file:///android_asset/installer_ui.html";
     private WebView webView;
     private VencordPatchManager patchManager;
 
@@ -34,10 +35,8 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
 
         Window window = getWindow();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            window.setStatusBarColor(Color.parseColor("#111214"));
-            window.setNavigationBarColor(Color.parseColor("#1E1F22"));
-        }
+        window.setStatusBarColor(Color.parseColor("#111214"));
+        window.setNavigationBarColor(Color.parseColor("#1E1F22"));
 
         patchManager = new VencordPatchManager(this);
 
@@ -45,29 +44,42 @@ public class MainActivity extends Activity {
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
-        settings.setAllowFileAccess(true);
-        settings.setDatabaseEnabled(true);
+        settings.setAllowFileAccess(false);
+        settings.setAllowContentAccess(false);
 
         webView.setBackgroundColor(Color.parseColor("#1E1F22"));
         webView.setWebChromeClient(new WebChromeClient());
-        webView.setWebViewClient(new WebViewClient());
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                return !request.isForMainFrame() || !INSTALLER_UI.equals(request.getUrl().toString());
+            }
+        });
         webView.addJavascriptInterface(new InstallerJsBridge(), "AndroidInstaller");
 
         setContentView(webView);
-        webView.loadUrl("file:///android_asset/installer_ui.html");
+        webView.loadUrl(INSTALLER_UI);
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        if (patchManager != null && patchManager.hasPendingResumeInstall()) {
-            String pkg = patchManager.getPatchedPackage();
-            patchManager.resumePendingPatchedInstall(pkg);
-        }
         if (webView != null) {
             webView.evaluateJavascript("if(typeof refreshStateFromBridge==='function'){refreshStateFromBridge();}", null);
         }
     }
+
+    private final VencordPatchManager.PatchLogCallback patchCallback = new VencordPatchManager.PatchLogCallback() {
+        @Override
+        public void onLog(String message, String level) {
+            sendLogToUi(message, level);
+        }
+
+        @Override
+        public void onFinished(boolean submitted) {
+            notifyPatchFinished(submitted);
+        }
+    };
 
     private void sendLogToUi(final String message, final String level) {
         runOnUiThread(() -> {
@@ -104,6 +116,7 @@ public class MainActivity extends Activity {
                     );
                     startActivity(intent);
                 } catch (Exception ignored) {
+                    sendLogToUi("Die Android-Einstellungen konnten nicht geöffnet werden.", "err");
                 }
             });
         }
@@ -116,17 +129,7 @@ public class MainActivity extends Activity {
                 requestInstallPermission();
                 return;
             }
-            patchManager.patchAndInstallAsync(targetPackage, new VencordPatchManager.PatchLogCallback() {
-                @Override
-                public void onLog(String message, String level) {
-                    sendLogToUi(message, level);
-                }
-
-                @Override
-                public void onFinished(boolean success) {
-                    notifyPatchFinished(success);
-                }
-            });
+            patchManager.patchAndInstallAsync(targetPackage, patchCallback);
         }
 
         @JavascriptInterface
@@ -137,12 +140,12 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void uninstallVencord(String targetPackage) {
             sendLogToUi("Starte Deinstallation von gepatchtem " + targetPackage + " & VencordForAndroid...", "warn");
-            patchManager.uninstallPatchedDiscord(targetPackage);
-            notifyPatchFinished(true);
+            patchManager.uninstallPatchedDiscord(targetPackage, patchCallback);
         }
 
         @JavascriptInterface
         public void openOfficialDiscordApp(String targetPackage) {
+            if (!VencordPatchManager.isSupportedTarget(targetPackage)) return;
             runOnUiThread(() -> {
                 try {
                     Intent launchIntent = getPackageManager().getLaunchIntentForPackage(targetPackage);
@@ -166,12 +169,26 @@ public class MainActivity extends Activity {
         public void openExternalUrl(String url) {
             runOnUiThread(() -> {
                 try {
-                    Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                    Uri uri = Uri.parse(url);
+                    if (!"https".equals(uri.getScheme()) || !"github.com".equals(uri.getHost())) return;
+                    Intent browserIntent = new Intent(Intent.ACTION_VIEW, uri);
                     startActivity(browserIntent);
                 } catch (Exception ignored) {
+                    sendLogToUi("Die GitHub-Releases konnten nicht im Browser geöffnet werden.", "err");
                 }
             });
         }
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (webView != null) {
+            webView.removeJavascriptInterface("AndroidInstaller");
+            setContentView(new android.view.View(this));
+            webView.destroy();
+            webView = null;
+        }
+        super.onDestroy();
     }
 
     @Override

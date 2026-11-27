@@ -6,6 +6,7 @@ import android.content.res.XModuleResources;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.AtomicFile;
 import android.widget.Toast;
 
 import java.io.ByteArrayOutputStream;
@@ -13,10 +14,6 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.lang.reflect.Method;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import de.robv.android.xposed.IXposedHookLoadPackage;
@@ -27,19 +24,17 @@ import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
 /**
- * VencordForAndroid Xposed / LSPatch Module (v0.0.8)
+ * VencordForAndroid Xposed / LSPatch Module
  *
- * Hooks the R8-PROOF native JNI bundle loader methods inside official Discord Android:
+ * Hooks the native JNI bundle loader methods in the supported React Native variants:
  * 1. com.facebook.react.runtime.ReactInstance.loadJSBundleFromAssets(AssetManager, String)
  * 2. com.facebook.react.runtime.ReactInstance.loadJSBundleFromFile(String, String)
  * 3. com.facebook.react.bridge.CatalystInstanceImpl.jniLoadScriptFromAssets(AssetManager, String, boolean)
  * 4. com.facebook.react.bridge.CatalystInstanceImpl.jniLoadScriptFromFile(String, String, boolean)
  *
- * Because these are native JNI methods, R8/ProGuard can NEVER rename them on any Play Store Discord build.
  */
 public class VencordXposedHook implements IXposedHookZygoteInit, IXposedHookLoadPackage {
 
-    private static final String BUNDLE_URL = "https://raw.githubusercontent.com/juli22292/vencordforandroid/main/dist/vencordforandroid.js";
     private static volatile String modulePath = null;
 
     private final AtomicBoolean hookedPackage = new AtomicBoolean(false);
@@ -65,35 +60,21 @@ public class VencordXposedHook implements IXposedHookZygoteInit, IXposedHookLoad
         }
         if (!hookedPackage.compareAndSet(false, true)) return;
 
-        XposedBridge.log("[VencordForAndroid v0.0.8] Active inside main process: " + pkg);
+        XposedBridge.log("[VencordForAndroid v" + BuildConfig.VERSION_NAME + "] Active inside main process: " + pkg);
 
         final File cacheDir = new File(lpparam.appInfo.dataDir, "cache/vencordforandroid");
         if (!cacheDir.exists()) {
             cacheDir.mkdirs();
         }
-        final File bundleFile = new File(cacheDir, "vencordforandroid.js");
-        final CountDownLatch readyLatch = new CountDownLatch(1);
+        final File bundleFile = new File(cacheDir, "vencordforandroid-" + BuildConfig.VERSION_NAME + ".js");
+        if (!extractBundledAsset(bundleFile)) {
+            XposedBridge.log("[VencordForAndroid] Bundled core asset could not be loaded.");
+            return;
+        }
 
-        // Ensure bundled fallback exists immediately, then refresh from GitHub in background
-        extractBundledFallback(bundleFile);
-        new Thread(() -> {
-            try {
-                downloadLatestBundle(bundleFile);
-            } catch (Throwable t) {
-                XposedBridge.log("[VencordForAndroid] Remote bundle fetch skipped: " + t.getMessage());
-            } finally {
-                if (!bundleFile.isFile() || bundleFile.length() == 0) {
-                    extractBundledFallback(bundleFile);
-                }
-                readyLatch.countDown();
-            }
-        }).start();
+        hookReactInstanceNative(lpparam.classLoader, bundleFile);
 
-        // Hook 1: New React Native Architecture (Bridgeless ReactInstance native JNI methods - NEVER renamed by R8!)
-        hookReactInstanceNative(lpparam.classLoader, bundleFile, readyLatch);
-
-        // Hook 2: Classic React Native Architecture (CatalystInstanceImpl native JNI methods - NEVER renamed by R8!)
-        hookCatalystInstanceNative(lpparam.classLoader, bundleFile, readyLatch);
+        hookCatalystInstanceNative(lpparam.classLoader, bundleFile);
 
         // Show subtle confirmation toast once when Discord Activity opens
         try {
@@ -105,8 +86,8 @@ public class VencordXposedHook implements IXposedHookZygoteInit, IXposedHookLoad
                         new Handler(Looper.getMainLooper()).postDelayed(() -> {
                             try {
                                 String status = bundleInjected.get()
-                                        ? "VencordForAndroid v0.0.8 geladen (" + activeEngineName + ")"
-                                        : "VencordForAndroid v0.0.8 bereit";
+                                        ? "VencordForAndroid v" + BuildConfig.VERSION_NAME + " geladen (" + activeEngineName + ")"
+                                        : "VencordForAndroid v" + BuildConfig.VERSION_NAME + " noch nicht geladen";
                                 Toast.makeText(act.getApplicationContext(), status, Toast.LENGTH_SHORT).show();
                             } catch (Throwable ignored) {
                             }
@@ -118,7 +99,7 @@ public class VencordXposedHook implements IXposedHookZygoteInit, IXposedHookLoad
         }
     }
 
-    private void hookReactInstanceNative(ClassLoader classLoader, final File bundleFile, final CountDownLatch readyLatch) {
+    private void hookReactInstanceNative(ClassLoader classLoader, final File bundleFile) {
         try {
             Class<?> reactInstanceClass = XposedHelpers.findClassIfExists("com.facebook.react.runtime.ReactInstance", classLoader);
             if (reactInstanceClass == null) {
@@ -139,10 +120,6 @@ public class VencordXposedHook implements IXposedHookZygoteInit, IXposedHookLoad
                 protected void beforeHookedMethod(MethodHookParam param) {
                     if (!bundleInjected.compareAndSet(false, true)) return;
                     try {
-                        readyLatch.await(2500, TimeUnit.MILLISECONDS);
-                        if (!bundleFile.isFile() || bundleFile.length() == 0) {
-                            extractBundledFallback(bundleFile);
-                        }
                         if (bundleFile.isFile() && bundleFile.length() > 0) {
                             String absPath = bundleFile.getAbsolutePath();
                             activeEngineName = "ReactInstance";
@@ -152,8 +129,11 @@ public class VencordXposedHook implements IXposedHookZygoteInit, IXposedHookLoad
                                     param.thisObject,
                                     new Object[]{absPath, absPath}
                             );
+                        } else {
+                            bundleInjected.set(false);
                         }
                     } catch (Throwable t) {
+                        bundleInjected.set(false);
                         XposedBridge.log("[VencordForAndroid] ReactInstance native injection error: " + t.getMessage());
                     }
                 }
@@ -171,7 +151,7 @@ public class VencordXposedHook implements IXposedHookZygoteInit, IXposedHookLoad
         }
     }
 
-    private void hookCatalystInstanceNative(ClassLoader classLoader, final File bundleFile, final CountDownLatch readyLatch) {
+    private void hookCatalystInstanceNative(ClassLoader classLoader, final File bundleFile) {
         try {
             Class<?> catalystClass = XposedHelpers.findClassIfExists("com.facebook.react.bridge.CatalystInstanceImpl", classLoader);
             if (catalystClass == null) return;
@@ -186,10 +166,6 @@ public class VencordXposedHook implements IXposedHookZygoteInit, IXposedHookLoad
                 protected void beforeHookedMethod(MethodHookParam param) {
                     if (!bundleInjected.compareAndSet(false, true)) return;
                     try {
-                        readyLatch.await(2500, TimeUnit.MILLISECONDS);
-                        if (!bundleFile.isFile() || bundleFile.length() == 0) {
-                            extractBundledFallback(bundleFile);
-                        }
                         if (bundleFile.isFile() && bundleFile.length() > 0) {
                             String absPath = bundleFile.getAbsolutePath();
                             boolean loadSync = param.args.length >= 3 && param.args[2] instanceof Boolean
@@ -202,8 +178,11 @@ public class VencordXposedHook implements IXposedHookZygoteInit, IXposedHookLoad
                                     param.thisObject,
                                     new Object[]{absPath, absPath, loadSync}
                             );
+                        } else {
+                            bundleInjected.set(false);
                         }
                     } catch (Throwable t) {
+                        bundleInjected.set(false);
                         XposedBridge.log("[VencordForAndroid] Catalyst native injection error: " + t.getMessage());
                     }
                 }
@@ -229,59 +208,36 @@ public class VencordXposedHook implements IXposedHookZygoteInit, IXposedHookLoad
         }
     }
 
-    private void downloadLatestBundle(File dest) throws Exception {
-        HttpURLConnection conn = null;
-        try {
-            URL url = new URL(BUNDLE_URL);
-            conn = (HttpURLConnection) url.openConnection();
-            conn.setConnectTimeout(2500);
-            conn.setReadTimeout(4000);
-            conn.setRequestProperty("User-Agent", "VencordForAndroid/0.0.8");
-            if (conn.getResponseCode() == 200) {
-                byte[] data = readAll(conn.getInputStream());
-                if (data.length > 1000) {
-                    File tmp = new File(dest.getPath() + ".tmp");
-                    try (FileOutputStream fos = new FileOutputStream(tmp)) {
-                        fos.write(data);
-                    }
-                    if (dest.exists()) dest.delete();
-                    tmp.renameTo(dest);
-                }
-            }
-        } finally {
-            if (conn != null) conn.disconnect();
-        }
-    }
-
-    private void extractBundledFallback(File dest) {
-        // Method 1: Read directly from embedded module ClassLoader resource (works in LSPatch & LSPosed!)
+    private boolean extractBundledAsset(File dest) {
         try (InputStream is = VencordXposedHook.class.getClassLoader().getResourceAsStream("assets/vencordforandroid.js")) {
-            if (is != null) {
-                byte[] data = readAll(is);
-                if (data.length > 1000) {
-                    try (FileOutputStream fos = new FileOutputStream(dest)) {
-                        fos.write(data);
-                    }
-                    return;
-                }
-            }
+            if (is != null && writeAsset(is, dest)) return true;
         } catch (Throwable ignored) {
         }
 
-        // Method 2: XModuleResources fallback
-        if (modulePath == null) return;
+        if (modulePath == null) return false;
         try {
             XModuleResources modRes = XModuleResources.createInstance(modulePath, null);
             try (InputStream is = modRes.getAssets().open("vencordforandroid.js")) {
-                byte[] data = readAll(is);
-                if (data.length > 1000) {
-                    try (FileOutputStream fos = new FileOutputStream(dest)) {
-                        fos.write(data);
-                    }
-                }
+                return writeAsset(is, dest);
             }
         } catch (Throwable t) {
-            XposedBridge.log("[VencordForAndroid] Fallback extract error: " + t.getMessage());
+            XposedBridge.log("[VencordForAndroid] Asset extraction error: " + t.getMessage());
+            return false;
+        }
+    }
+
+    private boolean writeAsset(InputStream in, File dest) throws Exception {
+        byte[] data = readAll(in);
+        if (data.length == 0) return false;
+        AtomicFile file = new AtomicFile(dest);
+        FileOutputStream out = file.startWrite();
+        try {
+            out.write(data);
+            file.finishWrite(out);
+            return true;
+        } catch (Exception e) {
+            file.failWrite(out);
+            throw e;
         }
     }
 

@@ -5,6 +5,7 @@
 .DS_Store
 /build/
 /app/build/
+/xposed-module/build/
 /captures/
 .externalNativeBuild
 .cxx

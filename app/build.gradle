@@ -2,6 +2,21 @@ plugins {
     id 'com.android.application'
 }
 
+def coreVersion = providers.gradleProperty('vencordCoreVersion').get()
+def moduleApk = project(':xposed-module').layout.buildDirectory.file('outputs/apk/release/xposed-module-release.apk')
+def embeddedAssets = layout.buildDirectory.dir('generated/assets/embedded-module')
+def embedXposedModule = tasks.register('embedXposedModule', Sync) {
+    dependsOn ':xposed-module:assembleRelease'
+    from(moduleApk)
+    rename { 'vencord_xposed_module.apk' }
+    into(embeddedAssets)
+    doLast {
+        if (!moduleApk.get().asFile.isFile()) {
+            throw new GradleException('The Xposed module APK is missing.')
+        }
+    }
+}
+
 android {
     namespace 'com.juli22292.vencordandroidapp'
     compileSdk 34
@@ -10,9 +25,16 @@ android {
         applicationId "com.juli22292.vencordandroidapp"
         minSdk 28
         targetSdk 34
-        versionCode 8
-        versionName "0.0.8"
+        versionCode 9
+        versionName "0.0.9"
+        buildConfigField 'String', 'CORE_VERSION', "\"$coreVersion\""
     }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    sourceSets.main.assets.srcDir(embeddedAssets)
 
     buildTypes {
         release {
@@ -44,6 +66,10 @@ android {
             ]
         }
     }
+}
+
+tasks.named('preBuild') {
+    dependsOn embedXposedModule
 }
 
 dependencies {

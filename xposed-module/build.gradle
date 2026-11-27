@@ -10,8 +10,12 @@ android {
         applicationId "com.juli22292.vencordforandroid.xposed"
         minSdk 24
         targetSdk 34
-        versionCode 8
-        versionName "0.0.8"
+        versionCode 9
+        versionName providers.gradleProperty('vencordCoreVersion').get()
+    }
+
+    buildFeatures {
+        buildConfig true
     }
 
     buildTypes {

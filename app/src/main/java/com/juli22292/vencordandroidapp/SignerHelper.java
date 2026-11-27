@@ -1,6 +1,7 @@
 package com.juli22292.vencordandroidapp;
 
 import android.content.Context;
+import android.util.AtomicFile;
 
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
@@ -72,8 +73,14 @@ public class SignerHelper {
                 new Certificate[]{cert}
         );
 
-        try (FileOutputStream fos = new FileOutputStream(ksFile)) {
+        AtomicFile atomicKeystore = new AtomicFile(ksFile);
+        FileOutputStream fos = atomicKeystore.startWrite();
+        try {
             keyStore.store(fos, KEYSTORE_PASSWORD.toCharArray());
+            atomicKeystore.finishWrite(fos);
+        } catch (Exception e) {
+            atomicKeystore.failWrite(fos);
+            throw e;
         }
 
         return ksFile;
