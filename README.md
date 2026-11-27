@@ -10,7 +10,7 @@
 
 ## Download
 
-Version `0.1.1` von **`vencordandroidapp.apk`** enthält VencordForAndroid `0.1.2` mit der Korrektur für die Einstellungsübersicht von Discord `355.10`. [APK herunterladen](https://github.com/juli22292/vencordandroidapp/releases/download/0.1.1/vencordandroidapp.apk)
+Version `0.1.2` von **`vencordandroidapp.apk`** enthält VencordForAndroid `0.1.3` mit nativen Symbolen und fünf offiziellen Plugin-Portierungen. [APK herunterladen](https://github.com/juli22292/vencordandroidapp/releases/download/0.1.2/vencordandroidapp.apk)
 
 Aktualisiere den vorhandenen Installer und wähle **Reinstall / Repair**, um das neue Bundle in Discord zu installieren. Der Installer verwendet LSPatch 1.2 zum Verpacken der APKs. [LSPatch 1.2 und Quellcode](https://github.com/JingMatrix/LSPatch/releases/tag/v1.2)
 
